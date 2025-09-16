@@ -1,121 +1,8 @@
-</div>
-</div>
+{% extends "base.html" %}
 
-<!-- Modal para seleccionar vehículo -->
-<div class="modal fade" id="vehicleSelectionModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Seleccionar vehículo para {{ route.name }}</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i> Selecciona el vehículo con el que realizarás este recorrido.
-                </div>
-                
-                {% if available_vehicles %}
-                <div id="vehiclesList">
-                    {% for vehicle in available_vehicles %}
-                    <div class="vehicle-option mb-3 p-3 border rounded" 
-                         data-vehicle-id="{{ vehicle.id }}"
-                         data-vehicle-info="{{ vehicle.brand }} {{ vehicle.model }} ({{ vehicle.plate_number }})"
-                         style="cursor: pointer;">
-                        <div class="d-flex align-items-center">
-                            <i class="fas fa-truck fa-2x text-primary me-3"></i>
-                            <div>
-                                <h6 class="mb-1">{{ vehicle.brand }} {{ vehicle.model }}</h6>
-                                <small class="text-muted">{{ vehicle.year }} - {{ vehicle.plate_number }}</small>
-                            </div>
-                            <div class="ms-auto">
-                                <i class="fas fa-check-circle text-success d-none" id="vehicle-check-{{ vehicle.id }}"></i>
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle me-2"></i> No hay vehículos disponibles.
-                </div>
-                {% endif %}
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-success" id="confirmVehicleBtn" disabled>
-                    <i class="fas fa-play me-2"></i> Iniciar con este vehículo
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endblock %}
+{% block title %}{{ route.name }} - Sistema de Optimización de Rutas{% endblock %}
 
-{% block extra_js %}
-<script>
-    let selectedVehicleId = null;
-
-    $(document).ready(function() {
-        // Manejar clic en botón de iniciar ruta
-        $('#startRouteBtn').click(function() {
-            $('#vehicleSelectionModal').modal('show');
-        });
-        
-        // Manejar selección de vehículo
-        $('.vehicle-option').click(function() {
-            // Remover selección anterior
-            $('.vehicle-option').removeClass('border-primary bg-light');
-            $('.fa-check-circle').addClass('d-none');
-            
-            // Agregar selección actual
-            $(this).addClass('border-primary bg-light');
-            $(this).find('.fa-check-circle').removeClass('d-none');
-            
-            selectedVehicleId = $(this).data('vehicle-id');
-            $('#confirmVehicleBtn').prop('disabled', false);
-        });
-        
-        // Confirmar inicio de ruta con vehículo seleccionado
-        $('#confirmVehicleBtn').click(function() {
-            if (!selectedVehicleId) {
-                alert('Debes seleccionar un vehículo');
-                return;
-            }
-            
-            $.ajax({
-                url: '/driver/start_route/{{ route.id }}',
-                type: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    vehicle_id: selectedVehicleId
-                }),
-                success: function(response) {
-                    if (response.success) {
-                        $('#vehicleSelectionModal').modal('hide');
-                        alert(response.message);
-                        window.location.href = '/driver/navigate/{{ route.id }}';
-                    } else {
-                        alert('Error: ' + response.message);
-                    }
-                },
-                error: function(xhr) {
-                    let errorMessage = 'Ha ocurrido un error al iniciar la ruta';
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        if (response.message) {
-                            errorMessage = response.message;
-                        }
-                    } catch (e) {}
-                    alert('Error: ' + errorMessage);
-                }
-            });
-        });
-    });
-</script>{% extends "base.html" %}
-
-{% block title %}Ver Ruta: {{ route.name }} - Sistema de Optimización de Rutas{% endblock %}
-
-{% block page_title %}Ver Ruta: {{ route.name }}{% endblock %}
+{% block page_title %}{{ route.name }}{% endblock %}
 
 {% block sidebar_items %}
 <li class="nav-item">
@@ -132,8 +19,9 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-md-4">
-        <div class="card shadow mb-4">
+    <!-- Información de la ruta -->
+    <div class="col-lg-4 mb-4">
+        <div class="card shadow">
             <div class="card-header py-3">
                 <h6 class="m-0 font-weight-bold text-primary">Información de la Ruta</h6>
             </div>
@@ -147,91 +35,465 @@
                 </div>
                 {% endif %}
                 <div class="mb-3">
-                    <strong>Fecha de creación:</strong> {{ route.created_at|datetime_format }}
+                    <strong>Distancia:</strong> {{ route.distance|distance_format if route.distance else 'N/A' }}
                 </div>
                 <div class="mb-3">
-                    <strong>Creado por:</strong> {{ route.creator.first_name }} {{ route.creator.last_name }}
+                    <strong>Creada:</strong> {{ route.created_at|datetime_format if route.created_at else 'N/A' }}
                 </div>
                 <div class="mb-3">
-                    <strong>Distancia total:</strong> {{ route.distance|distance_format }}
+                    <strong>Creada por:</strong> {{ route.creator.first_name + ' ' + route.creator.last_name if route.creator else 'N/A' }}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Control de ruta -->
+        <div class="card shadow mt-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Control de Ruta</h6>
+            </div>
+            <div class="card-body">
+                {% if this_route_in_progress %}
+                <!-- ESTA ruta específica ya está en progreso -->
+                <div class="alert alert-success">
+                    <i class="fas fa-route me-2"></i>
+                    <strong>Ruta en progreso desde {{ this_route_in_progress.started_at|datetime_format }}</strong>
                 </div>
                 
-                {% if in_progress %}
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle me-2"></i> Ya tienes una ruta en progreso.
+                {% if this_route_in_progress.fuel_start %}
+                <div class="mb-3">
+                    <small class="text-muted">Combustible inicial: {{ this_route_in_progress.fuel_start }}/4</small>
                 </div>
+                {% endif %}
+                
+                {% if this_route_in_progress.vehicle %}
+                <div class="mb-3">
+                    <small class="text-muted">Vehículo: {{ this_route_in_progress.vehicle.brand }} {{ this_route_in_progress.vehicle.model }} ({{ this_route_in_progress.vehicle.plate_number }})</small>
+                </div>
+                {% endif %}
+                
                 <div class="d-grid gap-2">
-                    <a href="{{ url_for('driver.navigate', route_id=in_progress.route.id) }}" class="btn btn-warning">
-                        <i class="fas fa-map-marked-alt me-2"></i> Continuar ruta actual
+                    <a href="{{ url_for('driver_navigate', route_id=route.id) }}" class="btn btn-success btn-lg">
+                        <i class="fas fa-map-marked-alt me-2"></i> Continuar navegación
                     </a>
-                </div>
-                {% else %}
-                <div class="d-grid gap-2">
-                    <button id="startRouteBtn" class="btn btn-success" {% if not current_user.driver_info or not current_user.driver_info.vehicles %}disabled{% endif %}>
-                        <i class="fas fa-play me-2"></i> Iniciar ruta
+                    
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#completeModal">
+                        <i class="fas fa-check me-2"></i> Completar Ruta
+                    </button>
+                    
+                    <button type="button" class="btn btn-secondary" onclick="cancelRoute({{ this_route_in_progress.id }})">
+                        <i class="fas fa-times me-2"></i> Cancelar Ruta
                     </button>
                 </div>
-                {% if not current_user.driver_info or not current_user.driver_info.vehicles %}
-                <div class="alert alert-warning mt-3">
-                    <i class="fas fa-exclamation-triangle me-2"></i> Necesitas tener un vehículo asignado para iniciar una ruta.
+                
+                {% elif in_progress %}
+                <!-- HAY otra ruta en progreso (no esta) -->
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Tienes otra ruta en progreso: "{{ in_progress.route.name }}"</strong><br>
+                    <small>Iniciada el {{ in_progress.started_at|datetime_format }}</small>
                 </div>
-                {% endif %}
+                
+                {% if in_progress.vehicle %}
+                <div class="mb-3">
+                    <small class="text-muted">Vehículo activo: {{ in_progress.vehicle.brand }} {{ in_progress.vehicle.model }} ({{ in_progress.vehicle.plate_number }})</small>
+                </div>
                 {% endif %}
                 
-                <div class="d-grid gap-2 mt-3">
-                    <a href="{{ url_for('driver_dashboard') }}" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left me-2"></i> Volver
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('driver_navigate', route_id=in_progress.route_id) }}" class="btn btn-warning btn-lg">
+                        <i class="fas fa-route me-2"></i> Ir a ruta activa
                     </a>
                 </div>
+                
+                <hr>
+                <small class="text-muted">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Debes completar o cancelar tu ruta actual antes de iniciar esta ruta.
+                </small>
+                
+                {% else %}
+                <!-- NO HAY rutas en progreso - Iniciar nueva ruta -->
+                <div class="alert alert-success">
+                    <i class="fas fa-play-circle me-2"></i> Lista para iniciar recorrido
+                </div>
+                
+                {% if not available_vehicles %}
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i> No hay vehículos disponibles
+                </div>
+                {% else %}
+                
+                <!-- Selector de vehículo -->
+                <div class="mb-3">
+                    <label class="form-label">Seleccionar vehículo:</label>
+                    <select class="form-select" id="vehicleSelect" required>
+                        <option value="">Selecciona un vehículo...</option>
+                        {% for vehicle in available_vehicles %}
+                        <option value="{{ vehicle.id }}">{{ vehicle.brand }} {{ vehicle.model }} ({{ vehicle.plate_number }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Selector de combustible -->
+                <div class="mb-3">
+                    <label class="form-label">Nivel de combustible inicial:</label>
+                    <div class="fuel-gauge">
+                        <div class="fuel-options">
+                            <input type="radio" id="fuel1" name="fuel_level" value="1" required>
+                            <label for="fuel1" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-1"></div>
+                                </div>
+                                <span>1/4</span>
+                            </label>
+                            
+                            <input type="radio" id="fuel2" name="fuel_level" value="2" required>
+                            <label for="fuel2" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-2"></div>
+                                </div>
+                                <span>2/4</span>
+                            </label>
+                            
+                            <input type="radio" id="fuel3" name="fuel_level" value="3" required>
+                            <label for="fuel3" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-3"></div>
+                                </div>
+                                <span>3/4</span>
+                            </label>
+                            
+                            <input type="radio" id="fuel4" name="fuel_level" value="4" required>
+                            <label for="fuel4" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-4"></div>
+                                </div>
+                                <span>4/4</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <button id="startRouteBtn" class="btn btn-success btn-lg">
+                        <i class="fas fa-play me-2"></i> Iniciar ruta y navegar
+                    </button>
+                </div>
+                {% endif %}
+                {% endif %}
             </div>
         </div>
     </div>
     
-    <div class="col-md-8">
-        <div class="card shadow mb-4">
+    <!-- Mapa de la ruta -->
+    <div class="col-lg-8 mb-4">
+        <div class="card shadow">
             <div class="card-header py-3">
                 <h6 class="m-0 font-weight-bold text-primary">Mapa de la Ruta</h6>
             </div>
             <div class="card-body p-0">
-                <div id="route-map" style="height: 600px; border-radius: 0 0 4px 4px;">
+                <div style="height: 500px; width: 100%;">
                     {{ map_html|safe }}
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Modal para completar ruta -->
+{% if this_route_in_progress %}
+<div class="modal fade" id="completeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Completar Ruta: {{ route.name }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="fuel_end_level" class="form-label">Nivel Final de Combustible:</label>
+                    <div class="fuel-gauge">
+                        <div class="fuel-options">
+                            <input type="radio" id="fuel_end_1" name="fuel_end_level" value="1" required>
+                            <label for="fuel_end_1" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-1"></div>
+                                </div>
+                                <span>1/4</span>
+                            </label>
+                            
+                            <input type="radio" id="fuel_end_2" name="fuel_end_level" value="2" required>
+                            <label for="fuel_end_2" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-2"></div>
+                                </div>
+                                <span>2/4</span>
+                            </label>
+                            
+                            <input type="radio" id="fuel_end_3" name="fuel_end_level" value="3" required>
+                            <label for="fuel_end_3" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-3"></div>
+                                </div>
+                                <span>3/4</span>
+                            </label>
+                            
+                            <input type="radio" id="fuel_end_4" name="fuel_end_level" value="4" required>
+                            <label for="fuel_end_4" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-4"></div>
+                                </div>
+                                <span>4/4</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="completion_notes" class="form-label">Notas (opcional):</label>
+                    <textarea class="form-control" id="completion_notes" rows="3" 
+                              placeholder="Observaciones sobre el recorrido..."></textarea>
+                </div>
+                
+                <div class="alert alert-info">
+                    <small>
+                        <strong>Combustible inicial:</strong> {{ this_route_in_progress.fuel_start }}/4<br>
+                        El sistema calculará automáticamente el consumo.
+                    </small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" onclick="completeRoute({{ this_route_in_progress.id }})">
+                    <i class="fas fa-check me-2"></i> Completar Ruta
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Estilos para el selector de combustible */
+    .fuel-gauge {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 15px;
+        border: 1px solid #dee2e6;
+    }
+    
+    .fuel-options {
+        display: flex;
+        gap: 15px;
+        justify-content: center;
+        align-items: end;
+    }
+    
+    .fuel-label {
+        cursor: pointer;
+        text-align: center;
+        transition: transform 0.2s;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .fuel-label:hover {
+        transform: scale(1.05);
+    }
+    
+    .fuel-bar {
+        width: 30px;
+        height: 60px;
+        border: 2px solid #333;
+        border-radius: 15px;
+        background: #e9ecef;
+        position: relative;
+        margin-bottom: 8px;
+        overflow: hidden;
+    }
+    
+    .fuel-fill {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        transition: all 0.3s ease;
+    }
+    
+    .fuel-1 { 
+        height: 25%; 
+        background: linear-gradient(180deg, #dc3545 0%, #c82333 100%);
+        border-radius: 0 0 13px 13px;
+    }
+    .fuel-2 { 
+        height: 50%; 
+        background: linear-gradient(180deg, #fd7e14 0%, #e8670e 100%);
+        border-radius: 0 0 13px 13px;
+    }
+    .fuel-3 { 
+        height: 75%; 
+        background: linear-gradient(180deg, #ffc107 0%, #e0a800 100%);
+        border-radius: 0 0 13px 13px;
+    }
+    .fuel-4 { 
+        height: 100%; 
+        background: linear-gradient(180deg, #28a745 0%, #1e7e34 100%);
+        border-radius: 13px;
+    }
+    
+    input[type="radio"] {
+        display: none;
+    }
+    
+    input[type="radio"]:checked + .fuel-label {
+        transform: scale(1.1);
+    }
+    
+    input[type="radio"]:checked + .fuel-label .fuel-bar {
+        box-shadow: 0 0 15px rgba(0,123,255,0.6);
+        border-color: #007bff;
+    }
+    
+    input[type="radio"]:checked + .fuel-label span {
+        font-weight: bold;
+        color: #007bff;
+    }
+    
+    .fuel-label span {
+        font-size: 0.9rem;
+        color: #6c757d;
+        transition: all 0.3s ease;
+    }
+</style>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    $(document).ready(function() {
-        // Manejar clic en botón de iniciar ruta
-        $('#startRouteBtn').click(function() {
-            if (confirm('¿Estás seguro de que deseas iniciar esta ruta?')) {
-                $.ajax({
-                    url: '/driver/start_route/{{ route.id }}',
-                    type: 'POST',
-                    success: function(response) {
-                        if (response.success) {
-                            alert(response.message);
-                            window.location.href = '/driver/navigate/{{ route.id }}';
-                        } else {
-                            alert('Error: ' + response.message);
-                        }
-                    },
-                    error: function(xhr) {
-                        let errorMessage = 'Ha ocurrido un error al iniciar la ruta';
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            if (response.message) {
-                                errorMessage = response.message;
-                            }
-                        } catch (e) {}
-                        alert('Error: ' + errorMessage);
+$(document).ready(function() {
+    $('#startRouteBtn').click(function() {
+        const vehicleId = $('#vehicleSelect').val();
+        const fuelLevel = $('input[name="fuel_level"]:checked').val();
+        
+        // Validaciones
+        if (!vehicleId) {
+            alert('Por favor selecciona un vehículo');
+            $('#vehicleSelect').focus();
+            return;
+        }
+        
+        if (!fuelLevel) {
+            alert('Por favor selecciona el nivel de combustible inicial');
+            return;
+        }
+        
+        // Cambiar botón a estado de carga
+        const button = $(this);
+        const originalText = button.html();
+        button.html('<i class="fas fa-spinner fa-spin me-2"></i> Iniciando...').prop('disabled', true);
+        
+        // Hacer la petición AJAX para iniciar la ruta
+        $.ajax({
+            url: '/driver/start_route/{{ route.id }}',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                vehicle_id: parseInt(vehicleId),
+                fuel_level: parseInt(fuelLevel)
+            }),
+            success: function(response) {
+                if (response.success) {
+                    // Mostrar mensaje de éxito
+                    alert(response.message);
+                    // Redirigir directamente a navegación
+                    window.location.href = '/driver/navigate/{{ route.id }}';
+                } else {
+                    alert('Error: ' + response.message);
+                    button.html(originalText).prop('disabled', false);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error iniciando ruta:', xhr.responseText);
+                let errorMessage = 'Error al iniciar la ruta';
+                
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.message) {
+                        errorMessage = response.message;
                     }
-                });
+                } catch (e) {
+                    errorMessage = 'Error de conexión: ' + error;
+                }
+                
+                alert(errorMessage);
+                button.html(originalText).prop('disabled', false);
             }
         });
     });
+});
+
+// Función para completar ruta
+function completeRoute(completionId) {
+    const fuelLevel = $('input[name="fuel_end_level"]:checked').val();
+    const notes = $('#completion_notes').val().trim();
+    
+    if (!fuelLevel) {
+        alert('Por favor selecciona el nivel final de combustible');
+        return;
+    }
+    
+    if (confirm(`¿Estás seguro de completar esta ruta con combustible final ${fuelLevel}/4?`)) {
+        $.ajax({
+            url: `/driver/complete_route/${completionId}`,
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                fuel_level: parseInt(fuelLevel),
+                notes: notes
+            }),
+            success: function(response) {
+                if (response.success) {
+                    alert(response.message);
+                    window.location.href = '/driver/dashboard';
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error completando ruta:', xhr.responseText);
+                alert('Error al completar la ruta. Por favor intenta de nuevo.');
+            }
+        });
+    }
+}
+
+// Función para cancelar ruta
+function cancelRoute(completionId) {
+    const reason = prompt('¿Por qué razón cancelas la ruta?');
+    
+    if (reason !== null && reason.trim() !== '') {
+        $.ajax({
+            url: `/driver/cancel_route/${completionId}`,
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                reason: reason.trim()
+            }),
+            success: function(response) {
+                if (response.success) {
+                    alert(response.message);
+                    window.location.href = '/driver/dashboard';
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error cancelando ruta:', xhr.responseText);
+                alert('Error al cancelar la ruta. Por favor intenta de nuevo.');
+            }
+        });
+    }
+}
 </script>
 {% endblock %}

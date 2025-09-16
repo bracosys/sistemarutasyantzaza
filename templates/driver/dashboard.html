@@ -53,11 +53,10 @@
             <div class="card-body">
                 {% if available_vehicles %}
                 <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i> Selecciona un vehículo antes de iniciar una ruta.
+                    <i class="fas fa-info-circle me-2"></i> Ve a los detalles de una ruta para seleccionar vehículo e iniciar recorrido.
                 </div>
                 {% for veh in available_vehicles %}
-                <div class="vehicle-card mb-3 p-3 border rounded {% if selected_vehicle and selected_vehicle.id == veh.id %}border-primary bg-light{% endif %}" 
-                     onclick="selectVehicle({{veh.id }})" style="cursor: pointer;">
+                <div class="vehicle-card mb-3 p-3 border rounded">
                     <div class="d-flex align-items-center">
                         <i class="fas fa-truck fa-2x text-primary me-3"></i>
                         <div>
@@ -65,7 +64,7 @@
                             <small class="text-muted">{{ veh.year }} - {{ veh.plate_number }}</small>
                         </div>
                         <div class="ms-auto">
-                            <i class="fas fa-check-circle text-success d-none" id="check-{{ veh.id }}"></i>
+                            <span class="badge bg-success">Disponible</span>
                         </div>
                     </div>
                 </div>
@@ -73,7 +72,7 @@
                 {% else %}
                 <p class="text-center">No hay vehículos disponibles.</p>
                 <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle me-2"></i> Contacta con un administrador para que te asigne un vehículo.
+                    <i class="fas fa-exclamation-triangle me-2"></i> Contacta con un administrador para que añada vehículos al sistema.
                 </div>
                 {% endif %}
             </div>
@@ -90,6 +89,12 @@
             <div class="card-body">
                 <h5>{{ in_progress.route.name if in_progress.route else 'Ruta desconocida' }}</h5>
                 <p>Iniciada el {{ in_progress.started_at|datetime_format if in_progress.started_at else 'Fecha desconocida' }}</p>
+                {% if in_progress.fuel_start %}
+                <p><strong>Combustible inicial:</strong> {{ in_progress.fuel_start }}/4</p>
+                {% endif %}
+                {% if in_progress.vehicle %}
+                <p><strong>Vehículo:</strong> {{ in_progress.vehicle.brand }} {{ in_progress.vehicle.model }} ({{ in_progress.vehicle.plate_number }})</p>
+                {% endif %}
                 
                 <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                     <a href="{{ url_for('driver_navigate', route_id=in_progress.route.id) }}" class="btn btn-success">
@@ -124,30 +129,31 @@
                                 <td>{{ route.distance|distance_format if route.distance else 'N/A' }}</td>
                                 <td>{{ route.created_at|datetime_format if route.created_at else 'N/A' }}</td>
                                 <td>
-                                    <a href="{{ url_for('driver_view_route', route_id=route.id) }}" class="btn btn-info btn-sm">
-                                        <i class="fas fa-eye"></i> Ver
+                                    <a href="{{ url_for('driver_view_route', route_id=route.id) }}" class="btn btn-primary btn-sm">
+                                        <i class="fas fa-route"></i> Ver e iniciar ruta
                                     </a>
-                                    {% if not in_progress %}
-                                    <button class="btn btn-success btn-sm start-route-btn" 
-                                            data-route-id="{{ route.id }}" 
-                                            data-route-name="{{ route.name }}"
-                                            {% if not available_vehicles %}disabled{% endif %}>
-                                        <i class="fas fa-play"></i> Iniciar
-                                    </button>
-                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
-                {% else %}
-                <p class="text-center">No hay rutas disponibles actualmente.</p>
-                {% endif %}
                 
                 {% if not available_vehicles %}
                 <div class="alert alert-warning mt-3">
                     <i class="fas fa-exclamation-triangle me-2"></i> Necesitas tener vehículos disponibles para iniciar una ruta.
+                </div>
+                {% endif %}
+                
+                {% if not in_progress %}
+                <div class="alert alert-success mt-3">
+                    <i class="fas fa-info-circle me-2"></i> Para iniciar una ruta, haz clic en "Ver e iniciar ruta" y sigue las instrucciones.
+                </div>
+                {% endif %}
+                {% else %}
+                <p class="text-center">No hay rutas disponibles actualmente.</p>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i> Las rutas deben ser creadas por un administrador.
                 </div>
                 {% endif %}
             </div>
@@ -170,6 +176,7 @@
                                 <th>Fecha</th>
                                 <th>Ruta</th>
                                 <th>Estado</th>
+                                <th>Combustible</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -196,6 +203,17 @@
                                     <span class="badge bg-secondary">Pendiente</span>
                                     {% endif %}
                                 </td>
+                                <td>
+                                    {% if completion.fuel_start and completion.fuel_end %}
+                                        <span class="text-success">{{ completion.fuel_start }}/4</span> → 
+                                        <span class="text-danger">{{ completion.fuel_end }}/4</span>
+                                        <small>({{ completion.fuel_consumption or 0 }})</small>
+                                    {% elif completion.fuel_start %}
+                                        Inicial: {{ completion.fuel_start }}/4
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -209,50 +227,12 @@
     </div>
 </div>
 
-<!-- Modal para confirmar inicio de ruta -->
-<div class="modal fade" id="startRouteModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Confirmar inicio de ruta</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i> Estás a punto de iniciar la ruta <strong id="routeNameConfirm"></strong>
-                </div>
-                
-                <div class="mb-3">
-                    <label class="form-label">Vehículo seleccionado:</label>
-                    <div id="selectedVehicleInfo" class="p-3 border rounded bg-light">
-                        <span class="text-muted">Selecciona un vehículo primero</span>
-                    </div>
-                </div>
-                
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle me-2"></i> Una vez iniciada la ruta, podrás navegar usando el GPS de tu dispositivo.
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-success" id="confirmStartBtn" disabled>
-                    <i class="fas fa-play me-2"></i> Iniciar recorrido
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <style>
 .border-left-warning {
     border-left: 0.25rem solid #f6c23e !important;
 }
 .vehicle-card:hover {
     background-color: #f8f9fa !important;
-}
-.vehicle-card.selected {
-    border-color: #007bff !important;
-    background-color: #e3f2fd !important;
 }
 </style>
 {% endblock %}
@@ -265,101 +245,11 @@
 <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
 <script>
-    let selectedVehicleId = null;
-    let selectedVehicleInfo = null;
-    let currentRouteId = null;
-
     $(document).ready(function() {
         $('#availableRoutesTable').DataTable({
-            language: {
-                url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/es-ES.json'
-            },
+            language: window.dataTablesSpanish,
             order: [[2, 'desc']]
         });
-        
-        // Manejar clic en botón de iniciar ruta
-        $('.start-route-btn').click(function() {
-            currentRouteId = $(this).data('route-id');
-            const routeName = $(this).data('route-name');
-            
-            $('#routeNameConfirm').text(routeName);
-            
-            if (selectedVehicleId) {
-                updateConfirmButton();
-            } else {
-                $('#selectedVehicleInfo').html('<span class="text-danger">Por favor selecciona un vehículo primero</span>');
-                $('#confirmStartBtn').prop('disabled', true);
-            }
-            
-            $('#startRouteModal').modal('show');
-        });
-        
-        // Confirmar inicio de ruta
-        $('#confirmStartBtn').click(function() {
-            if (!selectedVehicleId || !currentRouteId) {
-                alert('Debes seleccionar un vehículo y una ruta');
-                return;
-            }
-            
-            $.ajax({
-                url: '/driver/start_route/' + currentRouteId,
-                type: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    vehicle_id: selectedVehicleId
-                }),
-                success: function(response) {
-                    if (response.success) {
-                        $('#startRouteModal').modal('hide');
-                        alert(response.message);
-                        window.location.href = '/driver/navigate/' + currentRouteId;
-                    } else {
-                        alert('Error: ' + response.message);
-                    }
-                },
-                error: function(xhr) {
-                    let errorMessage = 'Ha ocurrido un error al iniciar la ruta';
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        if (response.message) {
-                            errorMessage = response.message;
-                        }
-                    } catch (e) {}
-                    alert('Error: ' + errorMessage);
-                }
-            });
-        });
     });
-
-    function selectVehicle(vehicleId) {
-        // Remover selección anterior
-        $('.vehicle-card').removeClass('selected border-primary bg-light');
-        $('.fa-check-circle').addClass('d-none');
-        
-        // Agregar selección actual
-        $(`#check-${vehicleId}`).removeClass('d-none');
-        $(`#check-${vehicleId}`).closest('.vehicle-card').addClass('selected border-primary bg-light');
-        
-        selectedVehicleId = vehicleId;
-        
-        // Obtener información del vehículo seleccionado
-        const vehicleCard = $(`#check-${vehicleId}`).closest('.vehicle-card');
-        const vehicleText = vehicleCard.find('h6').text() + ' - ' + vehicleCard.find('small').text();
-        selectedVehicleInfo = vehicleText;
-        
-        updateConfirmButton();
-    }
-
-    function updateConfirmButton() {
-        if (selectedVehicleId && selectedVehicleInfo) {
-            $('#selectedVehicleInfo').html(`
-                <div class="d-flex align-items-center">
-                    <i class="fas fa-truck text-success me-2"></i>
-                    <span>${selectedVehicleInfo}</span>
-                </div>
-            `);
-            $('#confirmStartBtn').prop('disabled', false);
-        }
-    }
 </script>
 {% endblock %}

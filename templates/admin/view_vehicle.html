@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}Ver Vehículo - {{ vehicle.brand }} {{ vehicle.model }} - Sistema de Optimización de Rutas{% endblock %}
+
+{% block page_title %}Vehículo: {{ vehicle.brand }} {{ vehicle.model }}{% endblock %}
+
+{% block sidebar_items %}
+<li class="nav-item">
+    <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
+        <i class="fas fa-tachometer-alt me-2"></i> Dashboard
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_routes') }}" class="nav-link">
+        <i class="fas fa-route me-2"></i> Rutas
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_users') }}" class="nav-link">
+        <i class="fas fa-users me-2"></i> Usuarios
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_vehicles') }}" class="nav-link">
+        <i class="fas fa-truck me-2"></i> Vehículos
+    </a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <!-- Información del vehículo -->
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Información del Vehículo</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-sm-4">
+                        <i class="fas fa-truck fa-5x text-primary mb-3"></i>
+                    </div>
+                    <div class="col-sm-8">
+                        <table class="table table-borderless">
+                            <tr>
+                                <td><strong>Marca:</strong></td>
+                                <td>{{ vehicle.brand }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Modelo:</strong></td>
+                                <td>{{ vehicle.model }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Año:</strong></td>
+                                <td>{{ vehicle.year }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Placa:</strong></td>
+                                <td><span class="badge bg-primary">{{ vehicle.plate_number }}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Estado:</strong></td>
+                                <td>
+                                    {% if vehicle.active %}
+                                        <span class="badge bg-success">Activo</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Inactivo</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Registrado:</strong></td>
+                                <td>{{ vehicle.created_at|datetime_format }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <a href="{{ url_for('edit_vehicle', vehicle_id=vehicle.id) }}" class="btn btn-warning">
+                        <i class="fas fa-edit me-2"></i> Editar
+                    </a>
+                    <a href="{{ url_for('manage_vehicles') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left me-2"></i> Volver
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <!-- Asignaciones de conductores -->
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Asignaciones de Conductores</h6>
+            </div>
+            <div class="card-body">
+                {% if assignments %}
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm">
+                        <thead>
+                            <tr>
+                                <th>Conductor</th>
+                                <th>Fecha Asignación</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for assignment in assignments %}
+                            <tr>
+                                <td>
+                                    {% if assignment.driver and assignment.driver.user %}
+                                        {{ assignment.driver.user.first_name }} {{ assignment.driver.user.last_name }}
+                                    {% else %}
+                                        Usuario no disponible
+                                    {% endif %}
+                                </td>
+                                <td>{{ assignment.assigned_at|datetime_format }}</td>
+                                <td>
+                                    {% if assignment.active %}
+                                        <span class="badge bg-success">Activa</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Inactiva</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-center text-muted">No hay asignaciones registradas para este vehículo.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Historial de rutas -->
+<div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Historial de Rutas Completadas</h6>
+    </div>
+    <div class="card-body">
+        {% if completions %}
+        <div class="table-responsive">
+            <table class="table table-bordered" id="completionsTable">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Ruta</th>
+                        <th>Conductor</th>
+                        <th>Estado</th>
+                        <th>Combustible</th>
+                        <th>Notas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for completion in completions %}
+                    <tr>
+                        <td>
+                            {% if completion.completed_at %}
+                                {{ completion.completed_at|datetime_format }}
+                            {% elif completion.started_at %}
+                                {{ completion.started_at|datetime_format }}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if completion.route %}
+                                {{ completion.route.name }}
+                            {% else %}
+                                Ruta eliminada
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if completion.driver %}
+                                {{ completion.driver.first_name }} {{ completion.driver.last_name }}
+                            {% else %}
+                                Usuario no disponible
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if completion.status == 'completed' %}
+                                <span class="badge bg-success">Completado</span>
+                            {% elif completion.status == 'in_progress' %}
+                                <span class="badge bg-warning">En progreso</span>
+                            {% elif completion.status == 'canceled' %}
+                                <span class="badge bg-danger">Cancelado</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ completion.status|title }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if completion.fuel_start and completion.fuel_end %}
+                                <span class="text-success">{{ completion.fuel_start }}/4</span> → 
+                                <span class="text-danger">{{ completion.fuel_end }}/4</span>
+                                <br><small class="text-muted">Consumo: {{ completion.fuel_consumption or 0 }}/4</small>
+                            {% elif completion.fuel_start %}
+                                Inicial: {{ completion.fuel_start }}/4
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if completion.notes %}
+                                <small>{{ completion.notes|truncate(50) }}</small>
+                            {% else %}
+                                <span class="text-muted">Sin notas</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-center text-muted">Este vehículo no ha completado ninguna ruta aún.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css">
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
+<script>
+    $(document).ready(function() {
+        $('#completionsTable').DataTable({
+            language: window.dataTablesSpanish,
+            order: [[0, 'desc']]
+        });
+    });
+</script>
+{% endblock %}

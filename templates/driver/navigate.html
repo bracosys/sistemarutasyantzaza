@@ -1,440 +1,557 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navegación: {{ route.name }} - Sistema de Optimización de Rutas</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.1/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
-    <style>
-        html, body {
-            height: 100%;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            display: flex;
-            flex-direction: column;
-        }
-        #map {
-            flex-grow: 1;
-            width: 100%;
-            height: 100%;
-            z-index: 0;
-        }
-        .navbar {
-            z-index: 1000;
-        }
-        .action-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background-color: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
-            z-index: 1000;
-        }
-        .btn-nav {
-            width: 100%;
-            padding: 15px;
-            font-size: 16px;
-            font-weight: 600;
-        }
-        .info-panel {
-            position: fixed;
-            top: 70px;
-            right: 15px;
-            background-color: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-            z-index: 1000;
-            max-width: 300px;
-            min-width: 200px;
-        }
-        @media (max-width: 768px) {
-            .info-panel {
-                max-width: 200px;
-                font-size: 14px;
-                padding: 10px;
-            }
-        }
-        .location-marker {
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0% {
-                transform: scale(0.9);
-                opacity: 0.8;
-            }
-            50% {
-                transform: scale(1.1);
-                opacity: 1;
-            }
-            100% {
-                transform: scale(0.9);
-                opacity: 0.8;
-            }
-        }
-        .status-indicator {
-            background-color: #28a745;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="#">
-                <i class="fas fa-route me-2"></i>{{ route.name }}
-            </a>
-            <div class="d-flex">
-                <a class="btn btn-outline-light btn-sm" href="{{ url_for('driver_dashboard') }}">
-                    <i class="fas fa-arrow-left me-1"></i> Dashboard
-                </a>
+{% extends "base.html" %}
+
+{% block title %}Navegando: {{ route.name }} - Sistema de Optimización de Rutas{% endblock %}
+
+{% block page_title %}Navegando: {{ route.name }}{% endblock %}
+
+{% block sidebar_items %}
+<li class="nav-item">
+    <a href="{{ url_for('driver_dashboard') }}" class="nav-link">
+        <i class="fas fa-tachometer-alt me-2"></i> Dashboard
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('driver_route_history') }}" class="nav-link">
+        <i class="fas fa-history me-2"></i> Historial de rutas
+    </a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Panel de control de navegación -->
+    <div class="col-lg-4 mb-4">
+        <div class="card shadow">
+            <div class="card-header py-3 bg-success text-white">
+                <h6 class="m-0 font-weight-bold">
+                    <i class="fas fa-route me-2"></i>Ruta en Progreso
+                </h6>
             </div>
-        </div>
-    </nav>
-    
-    <!-- Mapa -->
-    <div id="map"></div>
-    
-    <!-- Panel de información -->
-    <div class="info-panel" id="infoPanel">
-        <div class="text-center mb-2">
-            <span class="status-indicator">
-                <i class="fas fa-circle me-1" style="font-size: 8px;"></i> En progreso
-            </span>
-        </div>
-        <div class="mb-2">
-            <strong>Distancia restante:</strong> <span id="remainingDistance">Calculando...</span>
-        </div>
-        <div class="mb-2">
-            <strong>Tiempo estimado:</strong> <span id="estimatedTime">Calculando...</span>
-        </div>
-        <div class="mb-2">
-            <strong>Velocidad:</strong> <span id="currentSpeed">0 km/h</span>
-        </div>
-        <div class="text-center mt-2">
-            <small class="text-muted">
-                <i class="fas fa-map-marker-alt me-1"></i> GPS activo
-            </small>
-        </div>
-    </div>
-    
-    <!-- Barra de acciones -->
-    <div class="action-bar">
-        <div class="row g-2">
-            <div class="col-6">
-                <button id="completeBtn" class="btn btn-success btn-nav">
-                    <i class="fas fa-check me-2"></i> Completar ruta
-                </button>
-            </div>
-            <div class="col-6">
-                <button id="cancelBtn" class="btn btn-danger btn-nav">
-                    <i class="fas fa-times me-2"></i> Cancelar
-                </button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Modal para completar ruta -->
-    <div class="modal fade" id="completeModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Completar ruta</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>Ruta:</strong> {{ route.name }}
                 </div>
-                <div class="modal-body">
-                    <div class="alert alert-success">
-                        <i class="fas fa-check-circle me-2"></i> ¿Has completado exitosamente la ruta?
-                    </div>
-                    <div class="mb-3">
-                        <label for="completionNotes" class="form-label">Observaciones (opcional)</label>
-                        <textarea class="form-control" id="completionNotes" rows="3" placeholder="Añade cualquier observación sobre el recorrido..."></textarea>
-                    </div>
+
+                {% if route.distance %}
+                <div class="mb-3">
+                    <strong>Distancia:</strong> {{ route.distance|distance_format }}
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Volver</button>
-                    <button type="button" class="btn btn-success" id="confirmCompleteBtn">
-                        <i class="fas fa-check me-2"></i> Confirmar completado
+                {% endif %}
+
+                <div class="mb-3">
+                    <strong>Iniciada:</strong> {{ completion.started_at|datetime_format }}
+                </div>
+
+                {% if completion.vehicle %}
+                <div class="mb-3">
+                    <strong>Vehículo:</strong> {{ completion.vehicle.brand }} {{ completion.vehicle.model }}<br>
+                    <small class="text-muted">Placa: {{ completion.vehicle.plate_number }}</small>
+                </div>
+                {% endif %}
+
+                {% if completion.fuel_start %}
+                <div class="mb-3">
+                    <strong>Combustible inicial:</strong>
+                    <span class="badge bg-info">{{ completion.fuel_start }}/4</span>
+                </div>
+                {% endif %}
+
+                <!-- Estado de GPS -->
+                <div class="mb-3">
+                    <strong>Estado GPS:</strong>
+                    <span id="gpsStatus" class="badge bg-secondary">Desconectado</span>
+                </div>
+
+                <!-- Posición actual -->
+                <div class="mb-3" id="currentPosition" style="display: none;">
+                    <strong>Posición actual:</strong><br>
+                    <small id="coordinates" class="text-muted"></small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controles de navegación -->
+        <div class="card shadow mt-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Controles</h6>
+            </div>
+            <div class="card-body">
+                <!-- Botón para activar/desactivar GPS -->
+                <div class="d-grid gap-2 mb-3">
+                    <button id="toggleGpsBtn" class="btn btn-outline-primary" type="button">
+                        <i class="fas fa-satellite-dish me-2"></i>Activar Seguimiento GPS
                     </button>
                 </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Modal para cancelar ruta -->
-    <div class="modal fade" id="cancelModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Cancelar ruta</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle me-2"></i> ¿Estás seguro de que deseas cancelar esta ruta?
-                    </div>
-                    <div class="mb-3">
-                        <label for="cancelReason" class="form-label">Motivo de cancelación *</label>
-                        <textarea class="form-control" id="cancelReason" rows="3" placeholder="Explica por qué estás cancelando esta ruta..." required></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Volver</button>
-                    <button type="button" class="btn btn-danger" id="confirmCancelBtn">
-                        <i class="fas fa-times me-2"></i> Confirmar cancelación
+
+                <!-- Botones de acción -->
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-success" data-bs-toggle="modal"
+                        data-bs-target="#completeModal">
+                        <i class="fas fa-flag-checkered me-2"></i>Completar Ruta
+                    </button>
+
+                    <button type="button" class="btn btn-warning" onclick="pauseNavigation()">
+                        <i class="fas fa-pause me-2"></i>Pausar
+                    </button>
+
+                    <button type="button" class="btn btn-secondary" onclick="cancelRoute({{ completion.id }})">
+                        <i class="fas fa-times me-2"></i>Cancelar Ruta
                     </button>
                 </div>
+
+                <!-- Información adicional -->
+                <hr>
+                <small class="text-muted">
+                    <i class="fas fa-info-circle me-1"></i>
+                    El seguimiento GPS es opcional pero ayuda a registrar tu progreso.
+                </small>
             </div>
         </div>
     </div>
 
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
-    
-    <script>
-        // Variables globales
-        const routeId = {{ route.id }};
-        const completionId = {{ completion.id }};
-        const routeStartPoint = "{{ route.start_point }}".split(',').map(parseFloat);
-        const routeEndPoint = "{{ route.end_point }}".split(',').map(parseFloat);
-        
-        let map;
-        let currentPositionMarker = null;
-        let positionWatchId = null;
-        let positionsHistory = [];
-        let lastPosition = null;
-        
-        $(document).ready(function() {
-            initializeMap();
-            startLocationTracking();
-            setupEventHandlers();
+    <!-- Mapa de navegación -->
+    <div class="col-lg-8 mb-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="fas fa-map me-2"></i>Mapa de Navegación
+                </h6>
+            </div>
+            <div class="card-body p-0">
+                <div style="height: 600px; width: 100%; position: relative;">
+                    {{ map_html|safe }}
+
+                    <!-- Overlay para mostrar información -->
+                    <div id="navigationOverlay"
+                        style="position: absolute; top: 10px; right: 10px; z-index: 1000; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 5px; display: none;">
+                        <small>
+                            <strong>Tu posición:</strong><br>
+                            <span id="overlayCoords"></span>
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para completar ruta -->
+<div class="modal fade" id="completeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Completar Ruta: {{ route.name }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Ruta iniciada:</strong> {{ completion.started_at|datetime_format }}<br>
+                    <strong>Vehículo:</strong> {{ completion.vehicle.brand }} {{ completion.vehicle.model }}<br>
+                    <strong>Combustible inicial:</strong> {{ completion.fuel_start }}/4
+                </div>
+
+                <div class="mb-3">
+                    <label for="fuel_end_level" class="form-label">Nivel Final de Combustible:</label>
+                    <div class="fuel-gauge">
+                        <div class="fuel-options">
+                            <input type="radio" id="fuel_end_1" name="fuel_end_level" value="1" required>
+                            <label for="fuel_end_1" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-1"></div>
+                                </div>
+                                <span>1/4</span>
+                            </label>
+
+                            <input type="radio" id="fuel_end_2" name="fuel_end_level" value="2" required>
+                            <label for="fuel_end_2" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-2"></div>
+                                </div>
+                                <span>2/4</span>
+                            </label>
+
+                            <input type="radio" id="fuel_end_3" name="fuel_end_level" value="3" required>
+                            <label for="fuel_end_3" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-3"></div>
+                                </div>
+                                <span>3/4</span>
+                            </label>
+
+                            <input type="radio" id="fuel_end_4" name="fuel_end_level" value="4" required>
+                            <label for="fuel_end_4" class="fuel-label">
+                                <div class="fuel-bar">
+                                    <div class="fuel-fill fuel-4"></div>
+                                </div>
+                                <span>4/4</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="completion_notes" class="form-label">Notas del recorrido (opcional):</label>
+                    <textarea class="form-control" id="completion_notes" rows="4"
+                        placeholder="Observaciones sobre el recorrido, incidentes, condiciones de la ruta, etc."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" id="completeRouteBtn">
+                    <i class="fas fa-flag-checkered me-2"></i>Completar Ruta
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Estilos para el selector de combustible */
+    .fuel-gauge {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 15px;
+        border: 1px solid #dee2e6;
+    }
+
+    .fuel-options {
+        display: flex;
+        gap: 15px;
+        justify-content: center;
+        align-items: end;
+    }
+
+    .fuel-label {
+        cursor: pointer;
+        text-align: center;
+        transition: transform 0.2s;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .fuel-label:hover {
+        transform: scale(1.05);
+    }
+
+    .fuel-bar {
+        width: 30px;
+        height: 60px;
+        border: 2px solid #333;
+        border-radius: 15px;
+        background: #e9ecef;
+        position: relative;
+        margin-bottom: 8px;
+        overflow: hidden;
+    }
+
+    .fuel-fill {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        transition: all 0.3s ease;
+    }
+
+    .fuel-1 {
+        height: 25%;
+        background: linear-gradient(180deg, #dc3545 0%, #c82333 100%);
+        border-radius: 0 0 13px 13px;
+    }
+
+    .fuel-2 {
+        height: 50%;
+        background: linear-gradient(180deg, #fd7e14 0%, #e8670e 100%);
+        border-radius: 0 0 13px 13px;
+    }
+
+    .fuel-3 {
+        height: 75%;
+        background: linear-gradient(180deg, #ffc107 0%, #e0a800 100%);
+        border-radius: 0 0 13px 13px;
+    }
+
+    .fuel-4 {
+        height: 100%;
+        background: linear-gradient(180deg, #28a745 0%, #1e7e34 100%);
+        border-radius: 13px;
+    }
+
+    input[type="radio"] {
+        display: none;
+    }
+
+    input[type="radio"]:checked+.fuel-label {
+        transform: scale(1.1);
+    }
+
+    input[type="radio"]:checked+.fuel-label .fuel-bar {
+        box-shadow: 0 0 15px rgba(0, 123, 255, 0.6);
+        border-color: #007bff;
+    }
+
+    input[type="radio"]:checked+.fuel-label span {
+        font-weight: bold;
+        color: #007bff;
+    }
+
+    .fuel-label span {
+        font-size: 0.9rem;
+        color: #6c757d;
+        transition: all 0.3s ease;
+    }
+
+    /* Estilos para el estado GPS */
+    .badge {
+        font-size: 0.8em;
+    }
+
+    #navigationOverlay {
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        font-size: 0.9em;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let gpsActive = false;
+    let gpsWatchId = null;
+    let lastPosition = null;
+
+    $(document).ready(function () {
+        console.log('Navigation page loaded');
+
+        // Handler para activar/desactivar GPS
+        $('#toggleGpsBtn').on('click', function () {
+            if (gpsActive) {
+                stopGPS();
+            } else {
+                startGPS();
+            }
         });
-        
-        function initializeMap() {
-            // Inicializar el mapa
-            map = L.map('map').setView(routeStartPoint, 15);
-            
-            // Añadir capa de mapa base
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
-            }).addTo(map);
-            
-            // Dibujar la ruta básica
-            const routePoints = [routeStartPoint, routeEndPoint];
-            L.polyline(routePoints, {
-                color: 'blue',
-                weight: 4,
-                opacity: 0.7
-            }).addTo(map);
-            
-            // Marcadores de inicio y fin
-            L.marker(routeStartPoint, {
-                icon: L.icon({
-                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
-                    iconSize: [25, 41],
-                    iconAnchor: [12, 41],
-                    popupAnchor: [1, -34]
-                })
-            }).addTo(map).bindPopup('Inicio');
-            
-            L.marker(routeEndPoint, {
-                icon: L.icon({
-                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-                    iconSize: [25, 41],
-                    iconAnchor: [12, 41],
-                    popupAnchor: [1, -34]
-                })
-            }).addTo(map).bindPopup('Destino');
+
+        // Handler para completar ruta
+        $('#completeRouteBtn').on('click', function (e) {
+            e.preventDefault();
+            completeRoute();
+        });
+
+        // Verificar si la geolocalización está disponible
+        if (navigator.geolocation) {
+            console.log('Geolocation is available');
+        } else {
+            console.log('Geolocation is not available');
+            showAlert('Tu navegador no soporta geolocalización', 'warning');
         }
-        
-        function startLocationTracking() {
-            if ("geolocation" in navigator) {
-                positionWatchId = navigator.geolocation.watchPosition(
-                    updateCurrentPosition,
-                    handleLocationError,
-                    {
-                        enableHighAccuracy: true,
-                        maximumAge: 0,
-                        timeout: 10000
-                    }
-                );
-            } else {
-                alert('Tu dispositivo no soporta geolocalización.');
-            }
+    });
+
+    function startGPS() {
+        if (!navigator.geolocation) {
+            showAlert('Tu navegador no soporta geolocalización', 'error');
+            return;
         }
-        
-        function updateCurrentPosition(position) {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            const currentPosition = [lat, lng];
-            
-            // Actualizar marcador de posición actual
-            if (currentPositionMarker) {
-                currentPositionMarker.setLatLng(currentPosition);
-            } else {
-                currentPositionMarker = L.circleMarker(currentPosition, {
-                    radius: 10,
-                    fillColor: '#3388ff',
-                    fillOpacity: 0.8,
-                    weight: 3,
-                    color: 'white',
-                    className: 'location-marker'
-                }).addTo(map);
+
+        const options = {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 30000
+        };
+
+        gpsWatchId = navigator.geolocation.watchPosition(
+            onGPSSuccess,
+            onGPSError,
+            options
+        );
+
+        gpsActive = true;
+        updateGPSUI();
+        showAlert('GPS activado - Comenzando seguimiento', 'success');
+    }
+
+    function stopGPS() {
+        if (gpsWatchId !== null) {
+            navigator.geolocation.clearWatch(gpsWatchId);
+            gpsWatchId = null;
+        }
+
+        gpsActive = false;
+        updateGPSUI();
+        showAlert('GPS desactivado', 'info');
+    }
+
+    function onGPSSuccess(position) {
+        const coords = position.coords;
+        lastPosition = {
+            lat: coords.latitude,
+            lng: coords.longitude,
+            accuracy: coords.accuracy,
+            timestamp: new Date()
+        };
+
+        // Actualizar UI con la posición
+        updatePositionDisplay(lastPosition);
+
+        // Enviar posición al servidor (opcional)
+        sendPositionUpdate(lastPosition);
+    }
+
+    function onGPSError(error) {
+        let errorMessage = 'Error de GPS desconocido';
+
+        switch (error.code) {
+            case error.PERMISSION_DENIED:
+                errorMessage = 'Acceso a GPS denegado por el usuario';
+                break;
+            case error.POSITION_UNAVAILABLE:
+                errorMessage = 'Información de ubicación no disponible';
+                break;
+            case error.TIMEOUT:
+                errorMessage = 'Tiempo de espera de GPS agotado';
+                break;
+        }
+
+        console.error('GPS Error:', errorMessage, error);
+        $('#gpsStatus').removeClass('bg-success').addClass('bg-danger').text('Error GPS');
+        showAlert(errorMessage, 'warning');
+    }
+
+    function updateGPSUI() {
+        const btn = $('#toggleGpsBtn');
+        const status = $('#gpsStatus');
+
+        if (gpsActive) {
+            btn.html('<i class="fas fa-satellite-dish me-2"></i>Desactivar GPS')
+                .removeClass('btn-outline-primary')
+                .addClass('btn-outline-danger');
+            status.removeClass('bg-secondary bg-danger')
+                .addClass('bg-success')
+                .text('GPS Activo');
+        } else {
+            btn.html('<i class="fas fa-satellite-dish me-2"></i>Activar Seguimiento GPS')
+                .removeClass('btn-outline-danger')
+                .addClass('btn-outline-primary');
+            status.removeClass('bg-success bg-danger')
+                .addClass('bg-secondary')
+                .text('GPS Inactivo');
+            $('#currentPosition').hide();
+            $('#navigationOverlay').hide();
+        }
+    }
+
+    function updatePositionDisplay(position) {
+        const coordsText = `${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}`;
+        const accuracyText = `Precisión: ${Math.round(position.accuracy)}m`;
+
+        $('#coordinates').html(`${coordsText}<br><small>${accuracyText}</small>`);
+        $('#overlayCoords').text(coordsText);
+        $('#currentPosition').show();
+        $('#navigationOverlay').show();
+    }
+
+    function sendPositionUpdate(position) {
+        // Enviar la posición al servidor para tracking
+        makeRequest('/driver/update_route_progress/{{ completion.id }}', {
+            position: {
+                lat: position.lat,
+                lng: position.lng
             }
-            
-            // Centrar el mapa
-            map.setView(currentPosition, 16);
-            
-            // Calcular velocidad si hay posición anterior
-            let speed = 0;
-            if (lastPosition && position.coords.speed !== null) {
-                speed = position.coords.speed * 3.6; // Convertir m/s a km/h
-            }
-            
-            // Actualizar información de navegación
-            updateNavigationInfo(currentPosition, speed);
-            
-            // Guardar posición en historial
-            positionsHistory.push({
-                lat: lat,
-                lng: lng,
-                timestamp: new Date().toISOString(),
-                speed: speed
+        },
+            function (response) {
+                console.log('Position updated successfully');
+            },
+            function (error) {
+                console.error('Error updating position:', error);
+                // No mostrar error al usuario para no interrumpir la navegación
             });
-            
-            // Enviar posición al servidor
-            sendPositionToServer(lat, lng);
-            
-            lastPosition = currentPosition;
+    }
+
+    function pauseNavigation() {
+        if (gpsActive) {
+            stopGPS();
+            showAlert('Navegación pausada', 'info');
+        } else {
+            showAlert('La navegación ya está pausada', 'warning');
         }
-        
-        function updateNavigationInfo(currentPosition, speed) {
-            const distanceToEnd = calculateDistance(currentPosition, routeEndPoint);
-            $('#remainingDistance').text(distanceToEnd < 1 ? 
-                (distanceToEnd * 1000).toFixed(0) + ' m' : 
-                distanceToEnd.toFixed(1) + ' km'
-            );
-            
-            // Calcular tiempo estimado basado en velocidad actual o velocidad promedio
-            const avgSpeed = speed > 5 ? speed : 30; // Si velocidad es muy baja, usar 30 km/h
-            const estimatedMinutes = Math.ceil((distanceToEnd / avgSpeed) * 60);
-            $('#estimatedTime').text(estimatedMinutes + ' min');
-            
-            $('#currentSpeed').text(speed.toFixed(0) + ' km/h');
+    }
+
+    function completeRoute() {
+        const fuelLevel = $('input[name="fuel_end_level"]:checked').val();
+        const notes = $('#completion_notes').val().trim();
+
+        if (!fuelLevel) {
+            showAlert('Por favor selecciona el nivel final de combustible', 'warning');
+            return;
         }
-        
-        function calculateDistance(point1, point2) {
-            const R = 6371; // Radio de la Tierra en km
-            const dLat = (point2[0] - point1[0]) * Math.PI / 180;
-            const dLon = (point2[1] - point1[1]) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(point1[0] * Math.PI / 180) * Math.cos(point2[0] * Math.PI / 180) * 
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R * c;
+
+        if (!confirm(`¿Estás seguro de completar esta ruta con combustible final ${fuelLevel}/4?`)) {
+            return;
         }
-        
-        function sendPositionToServer(lat, lng) {
-            $.ajax({
-                url: '/driver/update_route_progress/' + completionId,
-                type: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    position: { lat: lat, lng: lng }
-                }),
-                success: function(response) {
-                    console.log('Posición actualizada');
+
+        const button = $('#completeRouteBtn');
+        const originalText = button.html();
+        button.html('<span class="loading-spinner"></span> Completando...').prop('disabled', true);
+
+        const requestData = {
+            fuel_level: parseInt(fuelLevel),
+            notes: notes
+        };
+
+        makeRequest('/driver/complete_route/{{ completion.id }}', requestData,
+            function (response) {
+                // Detener GPS si está activo
+                if (gpsActive) {
+                    stopGPS();
+                }
+
+                showAlert(response.message, 'success');
+                $('#completeModal').modal('hide');
+
+                setTimeout(function () {
+                    window.location.href = '/driver/dashboard';
+                }, 2000);
+            },
+            function (errorMessage) {
+                showAlert(errorMessage, 'error');
+                button.html(originalText).prop('disabled', false);
+            }
+        );
+    }
+
+    function cancelRoute(completionId) {
+        const reason = prompt('¿Por qué razón cancelas la ruta?');
+
+        if (reason !== null && reason.trim() !== '') {
+            // Detener GPS si está activo
+            if (gpsActive) {
+                stopGPS();
+            }
+
+            const requestData = {
+                reason: reason.trim()
+            };
+
+            makeRequest(`/driver/cancel_route/${completionId}`, requestData,
+                function (response) {
+                    showAlert(response.message, 'success');
+                    setTimeout(function () {
+                        window.location.href = '/driver/dashboard';
+                    }, 2000);
                 },
-                error: function(xhr) {
-                    console.error('Error al actualizar posición');
+                function (errorMessage) {
+                    showAlert(errorMessage, 'error');
                 }
-            });
+            );
         }
-        
-        function handleLocationError(error) {
-            console.error('Error de geolocalización:', error);
-            alert('No se pudo obtener tu ubicación. Verifica los permisos de GPS.');
+    }
+
+    // Limpiar GPS al salir de la página
+    window.addEventListener('beforeunload', function () {
+        if (gpsActive) {
+            stopGPS();
         }
-        
-        function setupEventHandlers() {
-            // Completar ruta
-            $('#completeBtn').click(function() {
-                $('#completeModal').modal('show');
-            });
-            
-            $('#confirmCompleteBtn').click(function() {
-                const notes = $('#completionNotes').val();
-                
-                $.ajax({
-                    url: '/driver/complete_route/' + completionId,
-                    type: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({ notes: notes }),
-                    success: function(response) {
-                        if (response.success) {
-                            alert('¡Ruta completada exitosamente!');
-                            window.location.href = '{{ url_for("driver_dashboard") }}';
-                        } else {
-                            alert('Error: ' + response.message);
-                        }
-                    },
-                    error: function() {
-                        alert('Error al completar la ruta');
-                    }
-                });
-            });
-            
-            // Cancelar ruta
-            $('#cancelBtn').click(function() {
-                $('#cancelModal').modal('show');
-            });
-            
-            $('#confirmCancelBtn').click(function() {
-                const reason = $('#cancelReason').val();
-                if (!reason.trim()) {
-                    alert('Debes proporcionar un motivo para cancelar');
-                    return;
-                }
-                
-                $.ajax({
-                    url: '/driver/cancel_route/' + completionId,
-                    type: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({ reason: reason }),
-                    success: function(response) {
-                        if (response.success) {
-                            alert('Ruta cancelada');
-                            window.location.href = '{{ url_for("driver_dashboard") }}';
-                        } else {
-                            alert('Error: ' + response.message);
-                        }
-                    },
-                    error: function() {
-                        alert('Error al cancelar la ruta');
-                    }
-                });
-            });
-        }
-        
-        // Limpiar al salir
-        $(window).on('beforeunload', function() {
-            if (positionWatchId !== null) {
-                navigator.geolocation.clearWatch(positionWatchId);
-            }
-        });
-    </script>
-</body>
-</html>
+    });
+</script>
+{% endblock %}

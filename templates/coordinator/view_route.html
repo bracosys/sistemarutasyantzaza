@@ -220,9 +220,7 @@
     $(document).ready(function() {
         // Inicializar DataTable
         $('#completionsTable').DataTable({
-            language: {
-                url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/es-ES.json'
-            },
+            language: window.dataTablesSpanish,
             order: [[0, 'desc']]
         });
         

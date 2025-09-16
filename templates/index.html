@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,16 +15,19 @@
             display: flex;
             flex-direction: column;
         }
+
         .hero-section {
-            background-color: #4a90e2;
+            background-color: #b71274;
             color: white;
             padding: 60px 0;
             margin-bottom: 40px;
         }
+
         .features-section {
             padding: 40px 0;
             flex-grow: 1;
         }
+
         .feature-card {
             text-align: center;
             padding: 20px;
@@ -33,50 +37,61 @@
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
+
         .feature-card:hover {
             transform: translateY(-5px);
         }
+
         .feature-icon {
             font-size: 3rem;
             margin-bottom: 20px;
-            color: #4a90e2;
+            color: #b71274;
         }
+
         .btn-primary {
-            background-color: #4a90e2;
-            border-color: #4a90e2;
+            background-color: #b71274;
+            border-color: #b71274;
             padding: 10px 20px;
         }
+
         .btn-primary:hover {
-            background-color: #357abd;
-            border-color: #357abd;
+            background-color: #b71274;
+            border-color: #b71274;
         }
+
         footer {
             background-color: #343a40;
             color: white;
             padding: 20px 0;
             margin-top: auto;
         }
+
         .route-list {
             margin-top: 30px;
         }
+
         .route-item {
             padding: 15px;
             margin-bottom: 10px;
             border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
             transition: transform 0.2s;
         }
+
         .route-item:hover {
             transform: translateX(5px);
             background-color: #f8f9fa;
         }
     </style>
 </head>
+
 <body>
     <!-- Barra de navegación -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="#">Optimización de Rutas</a>
+            <img src="{{ url_for('static', filename='img/logo_rec2.png') }}" alt="Optimización de Rutas"
+                class="d-inline-block align-text-top" height="40">
+
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -94,7 +109,8 @@
     <section class="hero-section">
         <div class="container text-center">
             <h1>Sistema de Optimización de Rutas</h1>
-            <p class="lead">Optimiza tus recorridos, ahorra tiempo y combustible con nuestra avanzada plataforma de optimización de rutas.</p>
+            <p class="lead">Optimiza tus recorridos, ahorra tiempo y combustible con nuestra avanzada plataforma de
+                optimización de rutas.</p>
             <a href="{{ url_for('login') }}" class="btn btn-light btn-lg mt-3">
                 <i class="fas fa-sign-in-alt me-2"></i> Acceder al sistema
             </a>
@@ -112,7 +128,8 @@
                             <i class="fas fa-route"></i>
                         </div>
                         <h3>Optimización de rutas</h3>
-                        <p>Utiliza algoritmos avanzados para encontrar la ruta más eficiente entre múltiples puntos, ahorrando tiempo y combustible.</p>
+                        <p>Utiliza algoritmos avanzados para encontrar la ruta más eficiente entre múltiples puntos,
+                            ahorrando tiempo y combustible.</p>
                     </div>
                 </div>
                 <div class="col-md-4">
@@ -121,7 +138,8 @@
                             <i class="fas fa-map-marked-alt"></i>
                         </div>
                         <h3>Navegación en tiempo real</h3>
-                        <p>Seguimiento GPS en tiempo real para choferes, permitiéndoles navegar fácilmente por las rutas optimizadas.</p>
+                        <p>Seguimiento GPS en tiempo real para choferes, permitiéndoles navegar fácilmente por las rutas
+                            optimizadas.</p>
                     </div>
                 </div>
                 <div class="col-md-4">
@@ -130,11 +148,12 @@
                             <i class="fas fa-chart-line"></i>
                         </div>
                         <h3>Gestión completa</h3>
-                        <p>Administra choferes, vehículos y rutas en un solo lugar. Realiza un seguimiento del historial de recorridos.</p>
+                        <p>Administra choferes, vehículos y rutas en un solo lugar. Realiza un seguimiento del historial
+                            de recorridos.</p>
                     </div>
                 </div>
             </div>
-            
+
             <!-- Lista de rutas públicas si las hay -->
             {% if routes and routes|length > 0 %}
             <div class="route-list">
@@ -155,7 +174,7 @@
             {% endif %}
         </div>
     </section>
-    
+
     <!-- Footer -->
     <footer class="text-center">
         <div class="container">
@@ -165,4 +184,5 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

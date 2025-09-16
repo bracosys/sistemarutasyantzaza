@@ -1,70 +1,110 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Editar Vehículo - Optimización de Rutas</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>Editar Vehículo</h1>
-            <!-- Actualizar la barra de navegación en cada template -->
+{% extends "base.html" %}
 
-<nav>
-    <ul class="nav-menu">
-        <li><a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}class="active"{% endif %}>Inicio</a></li>
-        {% if current_user.is_authenticated %}
-            {% if current_user.role == 'admin' %}
-                <li><a href="{{ url_for('create_route') }}" {% if request.endpoint == 'create_route' %}class="active"{% endif %}>Crear Ruta</a></li>
-                <li><a href="{{ url_for('vehicles') }}" {% if request.endpoint == 'vehicles' or request.endpoint == 'add_vehicle' or request.endpoint == 'edit_vehicle' %}class="active"{% endif %}>Gestión de Vehículos</a></li>
-                <li><a href="{{ url_for('register') }}" {% if request.endpoint == 'register' %}class="active"{% endif %}>Registrar Usuario</a></li>
-            {% endif %}
-            <li><a href="{{ url_for('completed_routes') }}" {% if request.endpoint == 'completed_routes' %}class="active"{% endif %}>Rutas Completadas</a></li>
-            <li><a href="{{ url_for('logout') }}">Cerrar Sesión ({{ current_user.username }})</a></li>
-        {% else %}
-            <li><a href="{{ url_for('login') }}" {% if request.endpoint == 'login' %}class="active"{% endif %}>Iniciar Sesión</a></li>
-        {% endif %}
-    </ul>
-</nav>
-        </header>
+{% block title %}Editar Vehículo - Sistema de Optimización de Rutas{% endblock %}
 
-        <main>
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="alert alert-{{ category }}">{{ message }}</div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
+{% block page_title %}Editar Vehículo{% endblock %}
 
-            <div class="auth-form">
-                <h2>Editar Vehículo</h2>
-                <form action="{{ url_for('edit_vehicle', vehicle_id=vehicle.id) }}" method="POST">
-                    <div class="form-group">
-                        <label for="marca">Marca:</label>
-                        <input type="text" id="marca" name="marca" value="{{ vehicle.marca }}" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="modelo">Modelo:</label>
-                        <input type="text" id="modelo" name="modelo" value="{{ vehicle.modelo }}" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="year">Año:</label>
-                        <input type="number" id="year" name="year" min="1900" max="{{ current_year + 1 }}" value="{{ vehicle.year }}" required>
-                    </div>
-                    <div class="form-buttons">
-                        <a href="{{ url_for('vehicles') }}" class="btn btn-secondary">Cancelar</a>
-                        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
-                    </div>
-                </form>
-            </div>
-        </main>
+{% block sidebar_items %}
+<li class="nav-item">
+    <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
+        <i class="fas fa-tachometer-alt me-2"></i> Dashboard
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_routes') }}" class="nav-link">
+        <i class="fas fa-route me-2"></i> Rutas
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_users') }}" class="nav-link">
+        <i class="fas fa-users me-2"></i> Usuarios
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_vehicles') }}" class="nav-link active">
+        <i class="fas fa-truck me-2"></i> Vehículos
+    </a>
+</li>
+{% endblock %}
 
-        <footer>
-            <p>&copy; {{ current_year }} Sistema de Optimización de Rutas</p>
-        </footer>
+{% block content %}
+<div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Editar vehículo: {{ vehicle.brand }} {{ vehicle.model }}</h6>
     </div>
-</body>
-</html>
+    <div class="card-body">
+        <form action="{{ url_for('edit_vehicle', vehicle_id=vehicle.id) }}" method="POST">
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="brand" class="form-label">Marca *</label>
+                    <input type="text" class="form-control" id="brand" name="brand" value="{{ vehicle.brand }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label for="model" class="form-label">Modelo *</label>
+                    <input type="text" class="form-control" id="model" name="model" value="{{ vehicle.model }}" required>
+                </div>
+            </div>
+            
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="year" class="form-label">Año *</label>
+                    <input type="number" class="form-control" id="year" name="year" min="1980" max="2030" value="{{ vehicle.year }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label for="plate_number" class="form-label">Número de placa *</label>
+                    <input type="text" class="form-control" id="plate_number" name="plate_number" value="{{ vehicle.plate_number }}" required>
+                </div>
+            </div>
+            
+            <div class="row mb-3">
+                <div class="col-md-12">
+                    <label class="form-label">Estado actual:</label>
+                    <div>
+                        {% if vehicle.active %}
+                            <span class="badge bg-success">Activo</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Inactivo</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i> Todos los campos marcados con * son obligatorios.
+            </div>
+            
+            <div class="d-flex justify-content-between mt-4">
+                <a href="{{ url_for('manage_vehicles') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Volver
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Guardar cambios
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Información adicional</h6>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <p><strong>Fecha de registro:</strong> {{ vehicle.created_at|datetime_format }}</p>
+                <p><strong>ID del vehículo:</strong> {{ vehicle.id }}</p>
+            </div>
+            <div class="col-md-6">
+                <p><strong>Estado:</strong> 
+                    {% if vehicle.active %}
+                        <span class="badge bg-success">Activo</span>
+                    {% else %}
+                        <span class="badge bg-secondary">Inactivo</span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

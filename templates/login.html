@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,6 +15,7 @@
             justify-content: center;
             min-height: 100vh;
         }
+
         .login-container {
             max-width: 400px;
             width: 100%;
@@ -22,58 +24,72 @@
             border-radius: 8px;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
         }
+
         .logo {
             text-align: center;
             margin-bottom: 20px;
             color: #4a90e2;
         }
+
         .form-floating {
             margin-bottom: 15px;
         }
+
         .btn-login {
             width: 100%;
             padding: 12px;
-            background-color: #4a90e2;
+            background-color: #b71274;
             border: none;
         }
+
         .btn-login:hover {
-            background-color: #357abd;
+            background-color: #74214c;
         }
     </style>
 </head>
+
 <body>
     <div class="login-container">
-        <div class="logo">
-            <h2>Optimización de Rutas</h2>
+        <div class="d-flex justify-content-center w-100" style="margin-bottom:20px;">
+            <a class="navbar-brand" href="#">
+                <img src="{{ url_for('static', filename='img/logo_rec1.png') }}" alt="Optimización de Rutas"
+                    style="height:100px; width:auto;">
+            </a>
         </div>
-        
+
+
+
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }}">{{ message }}</div>
-                {% endfor %}
-            {% endif %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
         {% endwith %}
-        
+
         <form method="POST" action="{{ url_for('login') }}">
             <div class="form-floating">
-                <input type="text" class="form-control" id="username" name="username" placeholder="Nombre de usuario" required>
+                <input type="text" class="form-control" id="username" name="username" placeholder="Nombre de usuario"
+                    required>
                 <label for="username">Nombre de usuario</label>
             </div>
-            
+
             <div class="form-floating">
-                <input type="password" class="form-control" id="password" name="password" placeholder="Contraseña" required>
+                <input type="password" class="form-control" id="password" name="password" placeholder="Contraseña"
+                    required>
                 <label for="password">Contraseña</label>
             </div>
-            
+
             <button type="submit" class="btn btn-primary btn-login">Iniciar sesión</button>
         </form>
-        
+
         <div class="text-center mt-3">
-            <small class="text-muted">Sistema de Optimización de Rutas © {{ now.year }}</small>
+            <small class="text-muted">Sistema de Optimización de Rutas © Design & Built by Nelson Eduardo Torres 2025
+            </small>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+
+{% block title %}Editar Vehículo - Sistema de Optimización de Rutas{% endblock %}
+
+{% block page_title %}Editar Vehículo: {{ vehicle.brand }} {{ vehicle.model }}{% endblock %}
+
+{% block sidebar_items %}
+<li class="nav-item">
+    <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
+        <i class="fas fa-tachometer-alt me-2"></i> Dashboard
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_routes') }}" class="nav-link">
+        <i class="fas fa-route me-2"></i> Rutas
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_users') }}" class="nav-link">
+        <i class="fas fa-users me-2"></i> Usuarios
+    </a>
+</li>
+<li class="nav-item">
+    <a href="{{ url_for('manage_vehicles') }}" class="nav-link active">
+        <i class="fas fa-truck me-2"></i> Vehículos
+    </a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="fas fa-edit me-2"></i>Editar información del vehículo
+                </h6>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('edit_vehicle', vehicle_id=vehicle.id) }}" method="POST" id="editVehicleForm">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="brand" class="form-label">Marca *</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="brand" 
+                                   name="brand" 
+                                   value="{{ vehicle.brand }}" 
+                                   required
+                                   placeholder="Toyota, Chevrolet, Nissan...">
+                            <div class="invalid-feedback">
+                                Por favor ingresa la marca del vehículo.
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="model" class="form-label">Modelo *</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="model" 
+                                   name="model" 
+                                   value="{{ vehicle.model }}" 
+                                   required
+                                   placeholder="Corolla, Aveo, Sentra...">
+                            <div class="invalid-feedback">
+                                Por favor ingresa el modelo del vehículo.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="year" class="form-label">Año *</label>
+                            <input type="number" 
+                                   class="form-control" 
+                                   id="year" 
+                                   name="year" 
+                                   value="{{ vehicle.year }}" 
+                                   min="1990" 
+                                   max="2030" 
+                                   required
+                                   placeholder="2020">
+                            <div class="invalid-feedback">
+                                Por favor ingresa un año válido (1990-2030).
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="plate_number" class="form-label">Número de placa *</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="plate_number" 
+                                   name="plate_number" 
+                                   value="{{ vehicle.plate_number }}" 
+                                   required
+                                   style="text-transform: uppercase; font-family: 'Courier New', monospace; font-weight: bold;"
+                                   placeholder="ABC-1234">
+                            <div class="invalid-feedback">
+                                Por favor ingresa el número de placa.
+                            </div>
+                            <small class="form-text text-muted">
+                                Formato: ABC-1234 o ABC123
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <!-- Información del vehículo -->
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Información del vehículo:</strong><br>
+                        <small>
+                            <strong>Registrado:</strong> {{ vehicle.created_at|datetime_format }}<br>
+                            <strong>Estado:</strong> 
+                            {% if vehicle.active %}
+                                <span class="badge bg-success">Activo</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Inactivo</span>
+                            {% endif %}
+                        </small>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between mt-4">
+                        <a href="{{ url_for('manage_vehicles') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-2"></i> Cancelar
+                        </a>
+                        <div>
+                            <a href="{{ url_for('admin_view_vehicle', vehicle_id=vehicle.id) }}" class="btn btn-info me-2">
+                                <i class="fas fa-eye me-2"></i> Ver detalles
+                            </a>
+                            <button type="submit" class="btn btn-primary" id="submitBtn">
+                                <i class="fas fa-save me-2"></i> Guardar cambios
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .form-control:focus {
+        border-color: #4e73df;
+        box-shadow: 0 0 0 0.2rem rgba(78, 115, 223, 0.25);
+    }
+    
+    .was-validated .form-control:valid {
+        border-color: #1cc88a;
+    }
+    
+    .was-validated .form-control:invalid {
+        border-color: #e74a3b;
+    }
+    
+    #plate_number {
+        letter-spacing: 1px;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Formatear placa automáticamente
+    $('#plate_number').on('input', function() {
+        let value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        
+        // Formato ABC-1234 o ABC123
+        if (value.length > 3) {
+            if (value.length <= 6) {
+                // Formato ABC123
+                value = value.substring(0, 3) + value.substring(3);
+            } else if (value.length <= 7) {
+                // Formato ABC-1234
+                value = value.substring(0, 3) + '-' + value.substring(3);
+            }
+        }
+        
+        this.value = value;
+    });
+    
+    // Validación del formulario
+    $('#editVehicleForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        // Limpiar validaciones previas
+        $(this).removeClass('was-validated');
+        $('.is-invalid').removeClass('is-invalid');
+        
+        // Validar campos
+        let isValid = true;
+        
+        // Validar marca
+        const brand = $('#brand').val().trim();
+        if (!brand) {
+            $('#brand').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        // Validar modelo
+        const model = $('#model').val().trim();
+        if (!model) {
+            $('#model').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        // Validar año
+        const year = parseInt($('#year').val());
+        if (!year || year < 1990 || year > 2030) {
+            $('#year').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        // Validar placa
+        const plateNumber = $('#plate_number').val().trim();
+        if (!plateNumber || plateNumber.length < 6) {
+            $('#plate_number').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        if (!isValid) {
+            $(this).addClass('was-validated');
+            showAlert('Por favor corrige los errores en el formulario', 'error');
+            return;
+        }
+        
+        // Confirmar cambios
+        if (!confirm('¿Estás seguro de guardar los cambios en este vehículo?')) {
+            return;
+        }
+        
+        // Cambiar botón a estado de carga
+        const submitBtn = $('#submitBtn');
+        const originalText = submitBtn.html();
+        submitBtn.html('<span class="loading-spinner"></span> Guardando...').prop('disabled', true);
+        
+        // Enviar formulario
+        this.submit();
+    });
+    
+    // Auto-validar campos mientras se escribe
+    $('.form-control').on('blur', function() {
+        const field = $(this);
+        const isRequired = field.prop('required');
+        const value = field.val().trim();
+        
+        if (isRequired && !value) {
+            field.addClass('is-invalid');
+        } else {
+            field.removeClass('is-invalid');
+        }
+    });
+    
+    // Validación especial para el año
+    $('#year').on('blur', function() {
+        const year = parseInt($(this).val());
+        
+        if (year && (year < 1990 || year > 2030)) {
+            $(this).addClass('is-invalid');
+        } else {
+            $(this).removeClass('is-invalid');
+        }
+    });
+    
+    console.log('Edit vehicle form initialized');
+});
+</script>
+{% endblock %}

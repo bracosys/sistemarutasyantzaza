@@ -95,7 +95,7 @@
         {% else %}
         <div class="text-center py-4">
             <p class="lead">No hay rutas registradas.</p>
-            <a href="{{ url_for('admin.create_route') }}" class="btn btn-primary">
+            <a href="{{ url_for('create_route') }}" class="btn btn-primary">
                 <i class="fas fa-plus"></i> Crear primera ruta
             </a>
         </div>
@@ -110,9 +110,7 @@
 <script>
     $(document).ready(function() {
         $('#routesTable').DataTable({
-            language: {
-                url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/es-ES.json'
-            },
+            language: window.dataTablesSpanish,
             order: [[2, 'desc']]
         });
     });

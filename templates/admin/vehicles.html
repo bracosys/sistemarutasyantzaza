@@ -52,11 +52,11 @@
                 </thead>
                 <tbody>
                     {% for vehicle in vehicles %}
-                    <tr>
+                    <tr class="{{ 'table-secondary' if not vehicle.active else '' }}">
                         <td>{{ vehicle.brand }}</td>
                         <td>{{ vehicle.model }}</td>
                         <td>{{ vehicle.year }}</td>
-                        <td>{{ vehicle.plate_number }}</td>
+                        <td><code>{{ vehicle.plate_number }}</code></td>
                         <td>{{ vehicle.created_at|datetime_format }}</td>
                         <td>
                             {% if vehicle.active %}
@@ -66,12 +66,24 @@
                             {% endif %}
                         </td>
                         <td>
-                            <button type="button" class="btn btn-info btn-sm">
-                                <i class="fas fa-eye"></i> Ver
-                            </button>
-                            <button type="button" class="btn btn-warning btn-sm">
-                                <i class="fas fa-edit"></i> Editar
-                            </button>
+                            <div class="btn-group" role="group">
+                                <a href="{{ url_for('admin_view_vehicle', vehicle_id=vehicle.id) }}" 
+                                   class="btn btn-info btn-sm" title="Ver detalles">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                <a href="{{ url_for('edit_vehicle', vehicle_id=vehicle.id) }}" 
+                                   class="btn btn-warning btn-sm" title="Editar vehículo">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                                <button type="button" 
+                                        class="btn btn-{{ 'secondary' if vehicle.active else 'success' }} btn-sm"
+                                        onclick="toggleVehicleStatus(5, true)"   
+                                        onclick="toggleVehicleStatus(5, false)"  
+
+                                        title="{{ 'Desactivar' if vehicle.active else 'Activar' }} vehículo">
+                                    <i class="fas fa-{{ 'pause' if vehicle.active else 'play' }}"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -80,9 +92,12 @@
         </div>
         {% else %}
         <div class="text-center py-4">
-            <p class="lead">No hay vehículos registrados.</p>
+            <div class="mb-3">
+                <i class="fas fa-truck fa-3x text-muted"></i>
+            </div>
+            <p class="lead text-muted">No hay vehículos registrados.</p>
             <a href="{{ url_for('add_vehicle') }}" class="btn btn-primary">
-                <i class="fas fa-plus"></i> Registrar primer vehículo
+                <i class="fas fa-plus me-2"></i> Registrar primer vehículo
             </a>
         </div>
         {% endif %}
@@ -98,12 +113,35 @@
 <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
 <script>
-    $(document).ready(function() {
-        $('#vehiclesTable').DataTable({
-            language: {
-                url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/es-ES.json'
-            }
-        });
+$(document).ready(function() {
+    $('#vehiclesTable').DataTable({
+        language: window.dataTablesSpanish,
+        columnDefs: [
+            { orderable: false, targets: [6] } // Desactivar ordenamiento en columna de acciones
+        ],
+        order: [[0, 'asc']], // Ordenar por marca por defecto
+        pageLength: 15
     });
+});
+
+function toggleVehicleStatus(vehicleId, isActive) {
+    const action = isActive ? 'desactivar' : 'activar';
+    const message = `¿Estás seguro de ${action} este vehículo?`;
+    
+    if (confirm(message)) {
+        // Mostrar indicador de carga
+        const button = event.target.closest('button');
+        const originalHtml = button.innerHTML;
+        button.innerHTML = '<span class="loading-spinner"></span>';
+        button.disabled = true;
+        
+        // Hacer request usando la función del formulario tradicional
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/admin/toggle_vehicle/${vehicleId}`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
 </script>
 {% endblock %}
