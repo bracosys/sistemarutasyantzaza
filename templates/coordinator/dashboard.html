@@ -67,7 +67,60 @@
             </div>
         </div>
     </div>
-
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-map-marked-alt"></i> Recorridos Completados con Mapas</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Ruta</th>
+                                    <th>Conductor</th>
+                                    <th>Vehículo</th>
+                                    <th>Completado</th>
+                                    <th>Combustible</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for completion in recent_completions %}
+                                <tr>
+                                    <td>{{ completion.route.name }}</td>
+                                    <td>{{ completion.driver.first_name }} {{ completion.driver.last_name }}</td>
+                                    <td>{{ completion.vehicle.brand }} {{ completion.vehicle.model }}</td>
+                                    <td>{{ completion.completed_at|datetime_format('%d/%m/%Y %H:%M') }}</td>
+                                    <td>
+                                        <span
+                                            class="badge bg-{% if completion.fuel_consumption > 0 %}warning{% elif completion.fuel_consumption < 0 %}success{% else %}secondary{% endif %}">
+                                            {% if completion.fuel_consumption > 0 %}
+                                            -{{ completion.fuel_consumption }}/4
+                                            {% elif completion.fuel_consumption < 0 %} +{{
+                                                abs(completion.fuel_consumption) }}/4 {% else %} Sin cambio {% endif %}
+                                                </span>
+                                    </td>
+                                    <td>
+                                        {% if completion.track_data %}
+                                        <a href="{{ url_for('view_completion_map', completion_id=completion.id) }}"
+                                            class="btn btn-sm btn-primary">
+                                            <i class="fas fa-map"></i> Ver Recorrido
+                                        </a>
+                                        {% else %}
+                                        <span class="text-muted">Sin datos</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="col-xl-3 col-md-6 mb-4">
         <div class="card border-left-warning shadow h-100">
             <div class="card-body">
