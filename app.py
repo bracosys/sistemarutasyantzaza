@@ -1706,13 +1706,14 @@ def create_app():
             db.session.rollback()  # Importante: hacer rollback en caso de error
             return jsonify({'success': False, 'message': f'Error al iniciar la ruta: {str(e)}'}), 500
 
+    
     @app.route('/driver/navigate/<int:route_id>')
     @driver_required
     def driver_navigate(route_id):
         try:
             route = Route.query.get_or_404(route_id)
             
-            # Buscar cualquier ruta en progreso del chofer (no necesariamente esta ruta específica)
+            # Buscar la ruta en progreso del chofer
             in_progress = RouteCompletion.query.filter_by(
                 driver_id=current_user.id,
                 status='in_progress'
@@ -1727,21 +1728,126 @@ def create_app():
                 flash(f'Tienes otra ruta en progreso: {in_progress.route.name}. Complétala primero.', 'warning')
                 return redirect(url_for('driver_dashboard'))
             
+            # CARGAR EL MAPA CORRECTAMENTE
+            map_html = ""
+            
             try:
-                with open(route.file_path, 'r', encoding='utf-8') as f:
-                    map_html = f.read()
+                # 1. Primero intentar cargar el archivo de mapa existente
+                if route.file_path and os.path.exists(route.file_path):
+                    print(f"Cargando mapa desde: {route.file_path}")
+                    with open(route.file_path, 'r', encoding='utf-8') as f:
+                        map_html = f.read()
+                    print(f"Mapa cargado exitosamente, tamaño: {len(map_html)} caracteres")
+                
+                # 2. Si no existe el archivo, intentar regenerar desde GPX
+                elif route.gpx_path and os.path.exists(route.gpx_path):
+                    print(f"Regenerando mapa desde GPX: {route.gpx_path}")
+                    
+                    # Cargar puntos del GPX
+                    optimizer = AdvancedRouteOptimizer()
+                    points = optimizer.load_gpx_points(route.gpx_path)
+                    
+                    if points:
+                        # Crear mapa temporal para navegación
+                        temp_map = optimizer.create_optimized_map(points, f"Navegación: {route.name}")
+                        
+                        # Generar HTML temporal
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
+                            temp_map.save(temp_file.name)
+                            
+                            # Leer el contenido
+                            with open(temp_file.name, 'r', encoding='utf-8') as f:
+                                map_html = f.read()
+                            
+                            # Limpiar archivo temporal
+                            os.unlink(temp_file.name)
+                        
+                        print(f"Mapa regenerado exitosamente desde GPX")
+                    else:
+                        print("No se pudieron cargar puntos del GPX")
+                
+                # 3. Si nada funciona, crear un mapa básico
+                if not map_html:
+                    print("Creando mapa básico como fallback")
+                    map_html = create_fallback_map(route.name)
+                    
             except Exception as e:
                 print(f"Error cargando mapa: {e}")
-                map_html = "<p>No se pudo cargar el mapa</p>"
+                map_html = create_fallback_map(route.name, error=str(e))
             
             return render_template('driver/navigate.html',
-                                 route=route,
-                                 completion=in_progress,
-                                 map_html=map_html)
+                                route=route,
+                                completion=in_progress,
+                                map_html=map_html)
+                                
         except Exception as e:
             print(f"ERROR en driver_navigate: {e}")
             flash(f'Error al cargar la navegación: {str(e)}', 'danger')
             return redirect(url_for('driver_dashboard'))
+
+
+    def create_fallback_map(route_name, error=None):
+        """Crear un mapa básico como fallback"""
+        try:
+            import folium
+            
+            # Crear mapa centrado en Ecuador
+            fallback_map = folium.Map(
+                location=[-3.8167, -78.7500],
+                zoom_start=13,
+                tiles='OpenStreetMap'
+            )
+            
+            # Agregar marcador básico
+            folium.Marker(
+                location=[-3.8167, -78.7500],
+                popup=f'Ubicación de referencia para {route_name}',
+                icon=folium.Icon(color='blue', icon='info-sign')
+            ).add_to(fallback_map)
+            
+            # Mensaje de información
+            info_message = f'''
+            <div style="position: fixed; 
+                        top: 10px; left: 10px; 
+                        background-color: rgba(255, 193, 7, 0.9); 
+                        padding: 10px; border-radius: 5px; 
+                        z-index: 9999; max-width: 300px;">
+                <h6>⚠️ Mapa Básico</h6>
+                <p>No se pudo cargar la ruta completa.</p>
+                {f"<p><small>Error: {error}</small></p>" if error else ""}
+                <p><small>Puedes usar el GPS para navegación.</small></p>
+            </div>
+            '''
+            
+            fallback_map.get_root().html.add_child(folium.Element(info_message))
+            
+            # Generar HTML
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
+                fallback_map.save(temp_file.name)
+                
+                with open(temp_file.name, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                
+                os.unlink(temp_file.name)
+                return html_content
+                
+        except Exception as e:
+            print(f"Error creando mapa fallback: {e}")
+            return f'''
+            <div style="height: 400px; display: flex; align-items: center; justify-content: center; 
+                        background-color: #f8f9fa; border: 1px solid #dee2e6;">
+                <div class="text-center">
+                    <h5>No se pudo cargar el mapa</h5>
+                    <p class="text-muted">Error: {e}</p>
+                    <p><small>Usa el GPS para navegación manual</small></p>
+                </div>
+            </div>
+            '''
+
+
+
 
     @app.route('/driver/update_route_progress/<int:completion_id>', methods=['POST'])
     @driver_required
@@ -2783,7 +2889,164 @@ def create_app():
             flash(f'Error al cargar dashboard de optimización: {str(e)}', 'danger')
             return redirect(url_for('admin_dashboard'))
 
+    @app.route('/debug/check_route_files/<int:route_id>')
+    def debug_check_route_files(route_id):
+        """Debug: Verificar archivos de una ruta específica"""
+        if not app.debug:
+            return jsonify({'error': 'Solo disponible en modo debug'})
+        
+        try:
+            route = Route.query.get_or_404(route_id)
+            
+            result = {
+                'route_id': route.id,
+                'route_name': route.name,
+                'file_path': route.file_path,
+                'gpx_path': route.gpx_path,
+                'checks': {}
+            }
+            
+            # Verificar file_path (mapa HTML)
+            if route.file_path:
+                result['checks']['file_path_exists'] = os.path.exists(route.file_path)
+                if os.path.exists(route.file_path):
+                    result['checks']['file_size'] = os.path.getsize(route.file_path)
+                    # Leer primeros 200 caracteres para verificar contenido
+                    try:
+                        with open(route.file_path, 'r', encoding='utf-8') as f:
+                            content_preview = f.read(200)
+                            result['checks']['file_content_preview'] = content_preview
+                            result['checks']['is_html'] = '<html' in content_preview.lower()
+                    except Exception as e:
+                        result['checks']['file_read_error'] = str(e)
+                else:
+                    result['checks']['file_path_error'] = 'Archivo no encontrado'
+            else:
+                result['checks']['file_path_error'] = 'No file_path definido'
+            
+            # Verificar gpx_path
+            if route.gpx_path:
+                result['checks']['gpx_path_exists'] = os.path.exists(route.gpx_path)
+                if os.path.exists(route.gpx_path):
+                    result['checks']['gpx_size'] = os.path.getsize(route.gpx_path)
+                    
+                    # Intentar cargar puntos del GPX
+                    try:
+                        optimizer = AdvancedRouteOptimizer()
+                        points = optimizer.load_gpx_points(route.gpx_path)
+                        result['checks']['gpx_points_loaded'] = len(points)
+                        result['checks']['sample_points'] = points[:3] if points else []
+                    except Exception as e:
+                        result['checks']['gpx_load_error'] = str(e)
+                else:
+                    result['checks']['gpx_path_error'] = 'Archivo GPX no encontrado'
+            else:
+                result['checks']['gpx_path_error'] = 'No gpx_path definido'
+            
+            return jsonify(result)
+            
+        except Exception as e:
+            return jsonify({'error': str(e)})
 
+    @app.route('/debug/regenerate_route_map/<int:route_id>')
+    def debug_regenerate_route_map(route_id):
+        """Debug: Regenerar mapa de una ruta desde GPX"""
+        if not app.debug:
+            return jsonify({'error': 'Solo disponible en modo debug'})
+        
+        try:
+            route = Route.query.get_or_404(route_id)
+            
+            if not route.gpx_path or not os.path.exists(route.gpx_path):
+                return jsonify({'error': 'No hay archivo GPX disponible'})
+            
+            print(f"Regenerando mapa para ruta: {route.name}")
+            
+            # Cargar puntos del GPX
+            optimizer = AdvancedRouteOptimizer()
+            points = optimizer.load_gpx_points(route.gpx_path)
+            
+            if not points:
+                return jsonify({'error': 'No se pudieron cargar puntos del GPX'})
+            
+            # Crear nuevo mapa
+            route_map = optimizer.create_optimized_map(points, route.name)
+            
+            # Generar nuevo archivo
+            import uuid
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            new_filename = f"route_{route.id}_{timestamp}.html"
+            new_filepath = os.path.join('static', 'routes', new_filename)
+            
+            # Asegurar que el directorio existe
+            os.makedirs(os.path.dirname(new_filepath), exist_ok=True)
+            
+            # Guardar mapa
+            route_map.save(new_filepath)
+            
+            # Actualizar ruta en BD
+            old_file_path = route.file_path
+            route.file_path = new_filepath
+            db.session.commit()
+            
+            # Eliminar archivo anterior si existe
+            if old_file_path and os.path.exists(old_file_path):
+                try:
+                    os.remove(old_file_path)
+                except:
+                    pass
+            
+            return jsonify({
+                'success': True,
+                'message': f'Mapa regenerado exitosamente',
+                'new_file_path': new_filepath,
+                'points_loaded': len(points),
+                'file_size': os.path.getsize(new_filepath)
+            })
+            
+        except Exception as e:
+            print(f"Error regenerando mapa: {e}")
+            return jsonify({'error': str(e)})
+
+    @app.route('/debug/list_route_files')
+    def debug_list_route_files():
+        """Debug: Listar el estado de archivos de todas las rutas"""
+        if not app.debug:
+            return jsonify({'error': 'Solo disponible en modo debug'})
+        
+        try:
+            routes = Route.query.filter_by(active=True).all()
+            
+            result = []
+            for route in routes:
+                route_info = {
+                    'id': route.id,
+                    'name': route.name,
+                    'file_path': route.file_path,
+                    'gpx_path': route.gpx_path,
+                    'file_exists': route.file_path and os.path.exists(route.file_path) if route.file_path else False,
+                    'gpx_exists': route.gpx_path and os.path.exists(route.gpx_path) if route.gpx_path else False,
+                    'created_at': route.created_at.isoformat() if route.created_at else None
+                }
+                
+                # Agregar tamaños de archivo
+                if route_info['file_exists']:
+                    route_info['file_size'] = os.path.getsize(route.file_path)
+                
+                if route_info['gpx_exists']:
+                    route_info['gpx_size'] = os.path.getsize(route.gpx_path)
+                
+                result.append(route_info)
+            
+            return jsonify({
+                'total_routes': len(routes),
+                'routes_with_maps': len([r for r in result if r['file_exists']]),
+                'routes_with_gpx': len([r for r in result if r['gpx_exists']]),
+                'routes': result
+            })
+            
+        except Exception as e:
+            return jsonify({'error': str(e)})
 
 
 
