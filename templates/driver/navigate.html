@@ -1,1462 +1,593 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="es">
 
-{% block title %}Navegando: {{ route.name }} - Sistema de Optimización de Rutas{% endblock %}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navegación: {{ route.name }} - Sistema de Optimización de Rutas</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.1/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css" />
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
 
-{% block page_title %}Navegando: {{ route.name }}{% endblock %}
+        body {
+            display: flex;
+            flex-direction: column;
+        }
 
-{% block meta_tags %}
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-{% endblock %}
+        #map {
+            flex-grow: 1;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
 
-{% block sidebar_items %}
-<li class="nav-item">
-    <a href="{{ url_for('driver.driver_dashboard') }}" class="nav-link">
-        <i class="fas fa-tachometer-alt me-2"></i> Dashboard
-    </a>
-</li>
-<li class="nav-item">
-    <a href="{{ url_for('driver.driver_route_history') }}" class="nav-link">
-        <i class="fas fa-history me-2"></i> Historial de rutas
-    </a>
-</li>
-{% endblock %}
+        .navbar {
+            z-index: 1000;
+        }
 
-{% block content %}
-<!-- Contenedor principal responsive -->
-<div class="container-fluid px-2">
-    <div class="row">
-        <!-- Panel de control - Móvil primero -->
-        <div class="col-12 col-lg-4 mb-3 mb-lg-4">
-            <!-- Card de información de ruta -->
-            <div class="card shadow">
-                <div class="card-header py-2 py-lg-3 bg-success text-white">
-                    <h6 class="m-0 font-weight-bold">
-                        <i class="fas fa-route me-2"></i>Ruta en Progreso
-                    </h6>
-                </div>
-                <div class="card-body p-3">
-                    <div class="mb-3">
-                        <strong>Ruta:</strong>
-                        <span class="d-block d-lg-inline">{{ route.name }}</span>
-                    </div>
+        .action-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
 
-                    {% if route.distance %}
-                    <div class="mb-3">
-                        <strong>Distancia:</strong> {{ route.distance|distance_format }}
-                    </div>
-                    {% endif %}
+        .btn-nav {
+            width: 100%;
+            padding: 15px;
+            font-size: 16px;
+            font-weight: 600;
+        }
 
-                    <div class="mb-3">
-                        <strong>Iniciada:</strong>
-                        <span class="d-block d-lg-inline">{{ completion.started_at|datetime_format }}</span>
-                    </div>
+        .info-panel {
+            position: fixed;
+            top: 70px;
+            right: 15px;
+            background-color: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            max-width: 300px;
+            min-width: 200px;
+        }
 
-                    {% if completion.vehicle %}
-                    <div class="mb-3">
-                        <strong>Vehículo:</strong>
-                        <span class="d-block">{{ completion.vehicle.brand }} {{ completion.vehicle.model }}</span>
-                        <small class="text-muted">Placa: {{ completion.vehicle.plate_number }}</small>
-                    </div>
-                    {% endif %}
+        @media (max-width: 768px) {
+            .info-panel {
+                max-width: 200px;
+                font-size: 14px;
+                padding: 10px;
+            }
+        }
 
-                    {% if completion.fuel_start %}
-                    <div class="mb-3">
-                        <strong>Combustible inicial:</strong>
-                        <span class="badge bg-info">{{ completion.fuel_start }}/4</span>
-                    </div>
-                    {% endif %}
+        .location-marker {
+            animation: pulse 2s infinite;
+        }
 
-                    <!-- Estado de GPS con indicador visual mejorado -->
-                    <div class="mb-3">
-                        <strong>Estado GPS:</strong>
-                        <span id="gpsStatus" class="badge bg-secondary">
-                            <i class="fas fa-satellite-dish me-1"></i>Desconectado
-                        </span>
-                        <div id="gpsAccuracy" class="small text-muted mt-1" style="display: none;"></div>
-                    </div>
+        @keyframes pulse {
+            0% {
+                transform: scale(0.9);
+                opacity: 0.8;
+            }
 
-                    <!-- Posición actual mejorada para móvil -->
-                    <div class="mb-3" id="currentPosition" style="display: none;">
-                        <strong>Posición actual:</strong>
-                        <div id="coordinates" class="small text-muted mt-1"></div>
-                        <div id="lastUpdate" class="small text-muted"></div>
-                    </div>
+            50% {
+                transform: scale(1.1);
+                opacity: 1;
+            }
 
-                    <!-- Tiempo transcurrido -->
-                    <div class="mb-3">
-                        <strong>Tiempo transcurrido:</strong>
-                        <span id="elapsedTime" class="badge bg-primary">00:00:00</span>
-                    </div>
-                </div>
-            </div>
+            100% {
+                transform: scale(0.9);
+                opacity: 0.8;
+            }
+        }
 
-            <!-- Controles de navegación optimizados para móvil -->
-            <div class="card shadow mt-3">
-                <div class="card-header py-2 py-lg-3">
-                    <h6 class="m-0 font-weight-bold text-primary">Controles</h6>
-                </div>
-                <div class="card-body p-3">
-                    <!-- Botón GPS más grande para móvil -->
-                    <div class="d-grid gap-2 mb-3">
-                        <button id="toggleGpsBtn" class="btn btn-outline-primary btn-lg" type="button">
-                            <i class="fas fa-satellite-dish me-2"></i>
-                            <span id="gpsButtonText">Activar GPS</span>
-                        </button>
-                    </div>
+        .status-indicator {
+            background-color: #28a745;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+    </style>
+</head>
 
-                    <!-- Botones de acción optimizados -->
-                    <div class="d-grid gap-2">
-                        <button type="button" class="btn btn-success btn-lg" data-bs-toggle="modal"
-                            data-bs-target="#completeModal">
-                            <i class="fas fa-flag-checkered me-2"></i>Completar Ruta
-                        </button>
-
-                        <button type="button" class="btn btn-warning" onclick="pauseNavigation()">
-                            <i class="fas fa-pause me-2"></i>Pausar
-                        </button>
-
-                        <button type="button" class="btn btn-secondary" onclick="cancelRoute({{ completion.id }})">
-                            <i class="fas fa-times me-2"></i>Cancelar Ruta
-                        </button>
-                    </div>
-
-                    <!-- Información adicional -->
-                    <hr>
-                    <small class="text-muted">
-                        <i class="fas fa-info-circle me-1"></i>
-                        El GPS ayuda a registrar tu progreso automáticamente.
-                    </small>
-                </div>
-            </div>
-
-            <!-- Panel de estadísticas en tiempo real -->
-            <div class="card shadow mt-3 d-none d-lg-block">
-                <div class="card-header py-2">
-                    <h6 class="m-0 font-weight-bold text-info">
-                        <i class="fas fa-chart-line me-2"></i>Estadísticas
-                    </h6>
-                </div>
-                <div class="card-body p-3">
-                    <div class="row text-center">
-                        <div class="col-6 mb-2">
-                            <small class="text-muted">Velocidad</small>
-                            <div id="currentSpeed" class="h6 mb-0">0 km/h</div>
-                        </div>
-                        <div class="col-6 mb-2">
-                            <small class="text-muted">Distancia</small>
-                            <div id="traveledDistance" class="h6 mb-0">0.0 km</div>
-                        </div>
-                    </div>
-                </div>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-route me-2"></i>{{ route.name }}
+            </a>
+            <div class="d-flex">
+                <a class="btn btn-outline-light btn-sm" href="{{ url_for('driver_dashboard') }}">
+                    <i class="fas fa-arrow-left me-1"></i> Dashboard
+                </a>
             </div>
         </div>
+    </nav>
 
-        <!-- Mapa de navegación responsive -->
-        <div class="col-12 col-lg-8 mb-4">
-            <div class="card shadow">
-                <div class="card-header py-2 py-lg-3">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h6 class="m-0 font-weight-bold text-primary">
-                            <i class="fas fa-map me-2"></i>Mapa de Navegación
-                        </h6>
-                        <div class="btn-group btn-group-sm">
-                            <button type="button" class="btn btn-outline-primary" onclick="toggleFullscreen()"
-                                title="Pantalla completa">
-                                <i class="fas fa-expand"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="card-body p-0">
-                    <div id="mapContainer" class="position-relative">
-                        <!-- Altura adaptativa según dispositivo -->
-                        <div id="navigationMap" style="height: 50vh; min-height: 300px; width: 100%;"></div>
+    <!-- Mapa -->
+    <div id="map"></div>
 
-                        <!-- Overlay mejorado para móvil -->
-                        <div id="navigationOverlay"
-                            class="position-absolute top-0 end-0 m-2 bg-white bg-opacity-90 p-2 rounded shadow-sm"
-                            style="z-index: 1000; display: none;">
-                            <small>
-                                <strong>Tu posición:</strong><br>
-                                <span id="overlayCoords" class="text-muted"></span><br>
-                                <span id="overlayTime" class="text-muted"></span>
-                            </small>
-                        </div>
-
-                        <!-- Controles de mapa para móvil -->
-                        <div id="mapControls" class="position-absolute bottom-0 start-0 m-2" style="z-index: 1000;">
-                            <div class="btn-group-vertical">
-                                <button type="button" class="btn btn-sm btn-light" onclick="centerOnRoute()"
-                                    title="Centrar en ruta">
-                                    <i class="fas fa-crosshairs"></i>
-                                </button>
-                                <button type="button" class="btn btn-sm btn-light" onclick="centerOnPosition()"
-                                    title="Mi ubicación" style="display: none;" id="centerPositionBtn">
-                                    <i class="fas fa-location-arrow"></i>
-                                </button>
-                                <button type="button" class="btn btn-sm btn-light" onclick="toggleMapType()"
-                                    title="Cambiar vista" id="mapTypeBtn">
-                                    <i class="fas fa-layer-group"></i>
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Indicador de carga del mapa -->
-                        <div id="mapLoading" class="position-absolute top-50 start-50 translate-middle">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Cargando mapa...</span>
-                            </div>
-                        </div>
-
-                        <!-- Panel de navegación turn-by-turn (móvil) -->
-                        <div id="navigationPanel"
-                            class="position-absolute top-0 start-0 end-0 bg-primary text-white p-2 d-lg-none"
-                            style="z-index: 1000; display: none;">
-                            <div class="d-flex align-items-center">
-                                <i id="turnIcon" class="fas fa-arrow-up fa-2x me-3"></i>
-                                <div>
-                                    <div id="turnInstruction" class="fw-bold">Mantén rumbo</div>
-                                    <small id="turnDistance">Continúa por la ruta</small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <!-- Panel de información -->
+    <div class="info-panel" id="infoPanel">
+        <div class="text-center mb-2">
+            <span class="status-indicator">
+                <i class="fas fa-circle me-1" style="font-size: 8px;"></i> En progreso
+            </span>
+        </div>
+        <div class="mb-2">
+            <strong>Distancia restante:</strong> <span id="remainingDistance">Calculando...</span>
+        </div>
+        <div class="mb-2">
+            <strong>Tiempo estimado:</strong> <span id="estimatedTime">Calculando...</span>
+        </div>
+        <div class="mb-2">
+            <strong>Velocidad:</strong> <span id="currentSpeed">0 km/h</span>
+        </div>
+        <div class="text-center mt-2">
+            <small class="text-muted">
+                <i class="fas fa-map-marker-alt me-1"></i> GPS activo
+            </small>
         </div>
     </div>
-</div>
 
-<!-- Modal para completar ruta - Optimizado para móvil -->
-<div class="modal fade" id="completeModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Completar Ruta: {{ route.name }}</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    <!-- Barra de acciones -->
+    <div class="action-bar">
+        <div class="row g-2">
+            <div class="col-6">
+                <button id="completeBtn" class="btn btn-success btn-nav">
+                    <i class="fas fa-check me-2"></i> Completar ruta
+                </button>
             </div>
-            <div class="modal-body">
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>
-                    <strong>Ruta iniciada:</strong> {{ completion.started_at|datetime_format }}<br>
-                    <strong>Vehículo:</strong> {{ completion.vehicle.brand }} {{ completion.vehicle.model }}<br>
-                    <strong>Combustible inicial:</strong> {{ completion.fuel_start }}/4
-                </div>
-
-                <div class="mb-3">
-                    <label for="fuel_end_level" class="form-label">Nivel Final de Combustible:</label>
-                    <div class="fuel-gauge">
-                        <div class="fuel-options">
-                            <input type="radio" id="fuel_end_1" name="fuel_end_level" value="1" required>
-                            <label for="fuel_end_1" class="fuel-label">
-                                <div class="fuel-bar">
-                                    <div class="fuel-fill fuel-1"></div>
-                                </div>
-                                <span>1/4</span>
-                            </label>
-
-                            <input type="radio" id="fuel_end_2" name="fuel_end_level" value="2" required>
-                            <label for="fuel_end_2" class="fuel-label">
-                                <div class="fuel-bar">
-                                    <div class="fuel-fill fuel-2"></div>
-                                </div>
-                                <span>2/4</span>
-                            </label>
-
-                            <input type="radio" id="fuel_end_3" name="fuel_end_level" value="3" required>
-                            <label for="fuel_end_3" class="fuel-label">
-                                <div class="fuel-bar">
-                                    <div class="fuel-fill fuel-3"></div>
-                                </div>
-                                <span>3/4</span>
-                            </label>
-
-                            <input type="radio" id="fuel_end_4" name="fuel_end_level" value="4" required>
-                            <label for="fuel_end_4" class="fuel-label">
-                                <div class="fuel-bar">
-                                    <div class="fuel-fill fuel-4"></div>
-                                </div>
-                                <span>4/4</span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="mb-3">
-                    <label for="completion_notes" class="form-label">Notas del recorrido (opcional):</label>
-                    <textarea class="form-control" id="completion_notes" rows="3"
-                        placeholder="Observaciones sobre el recorrido, incidentes, condiciones de la ruta, etc."></textarea>
-                </div>
-
-                <!-- Resumen del viaje -->
-                <div id="tripSummary" class="alert alert-light" style="display: none;">
-                    <h6 class="mb-2">Resumen del Viaje:</h6>
-                    <div class="row text-center">
-                        <div class="col-4">
-                            <small class="text-muted">Tiempo total</small>
-                            <div id="summaryTime">--:--</div>
-                        </div>
-                        <div class="col-4">
-                            <small class="text-muted">Distancia</small>
-                            <div id="summaryDistance">-- km</div>
-                        </div>
-                        <div class="col-4">
-                            <small class="text-muted">Velocidad prom.</small>
-                            <div id="summarySpeed">-- km/h</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-success" id="completeRouteBtn">
-                    <i class="fas fa-flag-checkered me-2"></i>Completar Ruta
+            <div class="col-6">
+                <button id="cancelBtn" class="btn btn-danger btn-nav">
+                    <i class="fas fa-times me-2"></i> Cancelar
                 </button>
             </div>
         </div>
     </div>
-</div>
 
-<!-- Modal de pantalla completa -->
-<div class="modal fade" id="fullscreenModal" tabindex="-1">
-    <div class="modal-dialog modal-fullscreen">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Navegación - {{ route.name }}</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-0">
-                <div id="fullscreenMap" style="height: 100%; width: 100%;"></div>
+    <!-- Modal para completar ruta -->
+    <div class="modal fade" id="completeModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Completar ruta</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle me-2"></i> ¿Has completado exitosamente la ruta?
+                    </div>
+                    <div class="mb-3">
+                        <label for="completionNotes" class="form-label">Observaciones (opcional)</label>
+                        <textarea class="form-control" id="completionNotes" rows="3"
+                            placeholder="Añade cualquier observación sobre el recorrido..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Volver</button>
+                    <button type="button" class="btn btn-success" id="confirmCompleteBtn">
+                        <i class="fas fa-check me-2"></i> Confirmar completado
+                    </button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- Toast para notificaciones -->
-<div class="toast-container position-fixed bottom-0 end-0 p-3">
-    <div id="gpsToast" class="toast" role="alert">
-        <div class="toast-header">
-            <i class="fas fa-satellite-dish text-primary me-2"></i>
-            <strong class="me-auto">GPS</strong>
-            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-        </div>
-        <div class="toast-body" id="gpsToastBody">
-            <!-- Mensaje dinámico -->
+    <!-- Modal para cancelar ruta -->
+    <div class="modal fade" id="cancelModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Cancelar ruta</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i> ¿Estás seguro de que deseas cancelar esta ruta?
+                    </div>
+                    <div class="mb-3">
+                        <label for="cancelReason" class="form-label">Motivo de cancelación *</label>
+                        <textarea class="form-control" id="cancelReason" rows="3"
+                            placeholder="Explica por qué estás cancelando esta ruta..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Volver</button>
+                    <button type="button" class="btn btn-danger" id="confirmCancelBtn">
+                        <i class="fas fa-times me-2"></i> Confirmar cancelación
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
-</div>
 
-<!-- Indicador de conexión -->
-<div id="connectionStatus"
-    class="position-fixed top-0 start-50 translate-middle-x bg-danger text-white px-3 py-1 rounded-bottom"
-    style="z-index: 9999; display: none;">
-    <small><i class="fas fa-wifi-slash me-1"></i>Sin conexión</small>
-</div>
-{% endblock %}
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
 
-{% block extra_css %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script>
+        // Variables globales
+        const routeId = {{ route.id if route else 'null' }};
+        const completionId = {{ completion.id if completion else 'null' }};
 
-<style>
-    /* Estilos responsive mejorados */
-    @media (max-width: 768px) {
-        .container-fluid {
-            padding-left: 0.5rem;
-            padding-right: 0.5rem;
-        }
+        {% if route_points and route_points | length > 0 %}
+        const routePoints = [
+            {% for point in route_points %}
+        [{{ point[0] }}, {{ point[1] }}]{% if not loop.last %}, {% endif %}
+        {% endfor %}
+        ];
+        const routeStartPoint = [{{ route_points[0][0] }}, { { route_points[0][1] } }];
+        const routeEndPoint = [{{ route_points[-1][0] }}, { { route_points[-1][1] } }];
+        {% elif route and route.start_point and route.end_point %}
+        const routeStartPoint = [{{ route.start_point.split(',')[0] }}, { { route.start_point.split(',')[1] } }];
+        const routeEndPoint = [{{ route.end_point.split(',')[0] }}, { { route.end_point.split(',')[1] } }];
+        const routePoints = [routeStartPoint, routeEndPoint];
+        {% else %}
+        const routeStartPoint = [0, 0];
+        const routeEndPoint = [0, 0];
+        const routePoints = [];
+        {% endif %}
 
-        #navigationMap {
-            height: 60vh !important;
-            min-height: 400px !important;
-        }
+        let map;
+        let currentPositionMarker = null;
+        let positionWatchId = null;
+        let positionsHistory = [];
+        let lastPosition = null;
+        let routePath = null;
 
-        .card-body {
-            padding: 1rem !important;
-        }
-
-        .btn-lg {
-            padding: 0.75rem 1.5rem;
-            font-size: 1.1rem;
-        }
-
-        /* Hacer los botones más fáciles de tocar */
-        .fuel-label {
-            padding: 0.5rem;
-            margin: 0.25rem;
-        }
-
-        .fuel-bar {
-            width: 35px;
-            height: 70px;
-        }
-
-        /* Ocultar overlay en móvil si está activo el panel de navegación */
-        #navigationOverlay {
-            display: none !important;
-        }
-    }
-
-    /* Estilos para el selector de combustible mejorados */
-    .fuel-gauge {
-        background: #f8f9fa;
-        border-radius: 10px;
-        padding: 20px;
-        border: 1px solid #dee2e6;
-    }
-
-    .fuel-options {
-        display: flex;
-        gap: 10px;
-        justify-content: center;
-        align-items: end;
-        flex-wrap: nowrap;
-    }
-
-    .fuel-label {
-        cursor: pointer;
-        text-align: center;
-        transition: transform 0.2s;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 10px;
-        border-radius: 8px;
-        min-width: 60px;
-    }
-
-    .fuel-label:hover {
-        transform: scale(1.05);
-        background-color: rgba(0, 123, 255, 0.1);
-    }
-
-    .fuel-bar {
-        width: 30px;
-        height: 60px;
-        border: 2px solid #333;
-        border-radius: 15px;
-        background: #e9ecef;
-        position: relative;
-        margin-bottom: 8px;
-        overflow: hidden;
-    }
-
-    .fuel-fill {
-        position: absolute;
-        bottom: 0;
-        width: 100%;
-        transition: all 0.3s ease;
-    }
-
-    .fuel-1 {
-        height: 25%;
-        background: linear-gradient(180deg, #dc3545 0%, #c82333 100%);
-        border-radius: 0 0 13px 13px;
-    }
-
-    .fuel-2 {
-        height: 50%;
-        background: linear-gradient(180deg, #fd7e14 0%, #e8670e 100%);
-        border-radius: 0 0 13px 13px;
-    }
-
-    .fuel-3 {
-        height: 75%;
-        background: linear-gradient(180deg, #ffc107 0%, #e0a800 100%);
-        border-radius: 0 0 13px 13px;
-    }
-
-    .fuel-4 {
-        height: 100%;
-        background: linear-gradient(180deg, #28a745 0%, #1e7e34 100%);
-        border-radius: 13px;
-    }
-
-    input[type="radio"] {
-        display: none;
-    }
-
-    input[type="radio"]:checked+.fuel-label {
-        transform: scale(1.1);
-        background-color: rgba(0, 123, 255, 0.2);
-    }
-
-    input[type="radio"]:checked+.fuel-label .fuel-bar {
-        box-shadow: 0 0 15px rgba(0, 123, 255, 0.6);
-        border-color: #007bff;
-    }
-
-    input[type="radio"]:checked+.fuel-label span {
-        font-weight: bold;
-        color: #007bff;
-    }
-
-    .fuel-label span {
-        font-size: 0.9rem;
-        color: #6c757d;
-        transition: all 0.3s ease;
-    }
-
-    /* Estilos para el estado GPS */
-    .badge {
-        font-size: 0.8em;
-    }
-
-    #navigationOverlay {
-        backdrop-filter: blur(5px);
-        max-width: 200px;
-    }
-
-    /* Indicador de precisión GPS */
-    #gpsAccuracy {
-        font-size: 0.75rem;
-    }
-
-    /* Animación para el estado activo del GPS */
-    .gps-active {
-        animation: pulse-gps 2s infinite;
-    }
-
-    @keyframes pulse-gps {
-        0% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.7;
-        }
-
-        100% {
-            opacity: 1;
-        }
-    }
-
-    /* Controles del mapa */
-    #mapControls .btn {
-        width: 40px;
-        height: 40px;
-        margin-bottom: 2px;
-        border: 1px solid #ddd;
-        background: rgba(255, 255, 255, 0.9);
-        backdrop-filter: blur(5px);
-    }
-
-    #mapControls .btn:hover {
-        background: rgba(255, 255, 255, 1);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    }
-
-    /* Loading spinner */
-    #mapLoading {
-        z-index: 999;
-    }
-
-    /* Panel de navegación turn-by-turn */
-    #navigationPanel {
-        background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-    }
-
-    #turnIcon {
-        min-width: 40px;
-        text-align: center;
-    }
-
-    /* Mejor visibilidad en pantallas pequeñas */
-    @media (max-width: 576px) {
-        #navigationOverlay {
-            font-size: 0.8rem;
-            padding: 0.5rem;
-            max-width: 150px;
-        }
-
-        .fuel-options {
-            gap: 5px;
-        }
-
-        .fuel-bar {
-            width: 25px;
-            height: 50px;
-        }
-
-        .fuel-label {
-            min-width: 50px;
-            padding: 5px;
-        }
-
-        #navigationPanel {
-            padding: 1rem;
-        }
-
-        #turnIcon {
-            font-size: 1.5rem;
-        }
-    }
-
-    /* Estilos para pantalla completa */
-    .modal-fullscreen .modal-body {
-        padding: 0 !important;
-    }
-
-    /* Marcadores del mapa */
-    .route-marker {
-        background: white;
-        border-radius: 50%;
-        width: 30px;
-        height: 30px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    }
-
-    .position-marker {
-        background: #007bff;
-        border: 3px solid white;
-        border-radius: 50%;
-        width: 20px;
-        height: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        animation: pulse-position 2s infinite;
-    }
-
-    @keyframes pulse-position {
-        0% {
-            transform: scale(1);
-        }
-
-        50% {
-            transform: scale(1.2);
-        }
-
-        100% {
-            transform: scale(1);
-        }
-    }
-
-    /* Mejoras de accesibilidad */
-    .btn:focus {
-        box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-    }
-
-    /* Indicador de conexión */
-    #connectionStatus {
-        transition: all 0.3s ease;
-    }
-
-    /* Estilos para modo nocturno (opcional) */
-    @media (prefers-color-scheme: dark) {
-        .fuel-gauge {
-            background: #2d3748;
-            border-color: #4a5568;
-        }
-
-        .fuel-label:hover {
-            background-color: rgba(66, 153, 225, 0.1);
-        }
-
-        #navigationOverlay {
-            background: rgba(45, 55, 72, 0.9) !important;
-            color: white;
-        }
-    }
-</style>
-{% endblock %}
-
-{% block extra_js %}
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<script>
-    let gpsActive = false;
-    let gpsWatchId = null;
-    let lastPosition = null;
-    let map = null;
-    let routeLayer = null;
-    let positionMarker = null;
-    let fullscreenMap = null;
-    let startTime = new Date('{{ completion.started_at.isoformat() }}');
-    let elapsedInterval = null;
-    let traveledDistance = 0;
-    let previousPosition = null;
-    let currentMapType = 'street';
-
-    // Variables para tracking
-    let trackingPoints = [];
-    let lastTrackingUpdate = null;
-
-    $(document).ready(function () {
-        console.log('Navigation page loaded for mobile');
-
-        // Inicializar mapa
-        initializeMap();
-
-        // Inicializar contador de tiempo
-        startElapsedTimer();
-
-        // Handler para activar/desactivar GPS
-        $('#toggleGpsBtn').on('click', function () {
-            if (gpsActive) {
-                stopGPS();
-            } else {
-                startGPS();
+        $(document).ready(function () {
+            // Verificar que tenemos los datos necesarios
+            if (!routeId || !completionId) {
+                alert('Error: Datos de ruta incompletos');
+                window.location.href = '{{ url_for("driver_dashboard") }}';
+                return;
             }
+
+            initializeMap();
+            startLocationTracking();
+            setupEventHandlers();
         });
 
-        // Handler para completar ruta
-        $('#completeRouteBtn').on('click', function (e) {
-            e.preventDefault();
-            completeRoute();
-        });
+        function initializeMap() {
+            // Verificar que tenemos coordenadas válidas
+            if (!routePoints || routePoints.length === 0 ||
+                routeStartPoint[0] === 0 || routeEndPoint[0] === 0) {
+                alert('Error: Coordenadas de ruta no válidas');
+                return;
+            }
 
-        // Verificar soporte de geolocalización
-        if (!navigator.geolocation) {
-            showToast('Tu navegador no soporta geolocalización', 'warning');
-            $('#toggleGpsBtn').prop('disabled', true).html('<i class="fas fa-exclamation-triangle me-2"></i>GPS No Disponible');
-        }
-
-        // Manejar visibilidad de la página
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-
-        // Manejar conexión de red
-        window.addEventListener('online', handleConnectionChange);
-        window.addEventListener('offline', handleConnectionChange);
-
-        // Auto-activar GPS si es posible
-        if (navigator.geolocation && window.location.search.includes('auto_gps=true')) {
-            setTimeout(startGPS, 1000);
-        }
-
-        // Configurar modal de completar ruta
-        $('#completeModal').on('show.bs.modal', function () {
-            updateTripSummary();
-        });
-    });
-
-    function initializeMap() {
-        try {
-            $('#mapLoading').show();
+            console.log('Inicializando mapa con', routePoints.length, 'puntos');
 
             // Inicializar el mapa
-            map = L.map('navigationMap', {
-                zoomControl: true,
-                attributionControl: false
-            }).setView([-3.8167, -78.7500], 13);
+            map = L.map('map').setView(routeStartPoint, 15);
 
-            // Añadir capa de tiles
-            updateMapLayer();
-
-            // Cargar la ruta desde el backend
-            loadRouteData();
-
-            // Ocultar loading después de un tiempo
-            setTimeout(() => {
-                $('#mapLoading').hide();
-            }, 2000);
-
-        } catch (error) {
-            console.error('Error initializing map:', error);
-            $('#mapLoading').html('<div class="text-danger">Error cargando mapa</div>');
-        }
-    }
-
-    function updateMapLayer() {
-        // Limpiar capas existentes
-        map.eachLayer(function (layer) {
-            if (layer._url) {
-                map.removeLayer(layer);
-            }
-        });
-
-        let tileUrl, attribution;
-
-        switch (currentMapType) {
-            case 'satellite':
-                tileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-                attribution = '© Esri';
-                break;
-            case 'terrain':
-                tileUrl = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
-                attribution = '© OpenTopoMap';
-                break;
-            default: // street
-                tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-                attribution = '© OpenStreetMap contributors';
-        }
-
-        L.tileLayer(tileUrl, {
-            maxZoom: 19,
-            detectRetina: true,
-            attribution: attribution
-        }).addTo(map);
-    }
-
-    function loadRouteData() {
-        try {
-            const routeData = {{ route.coordinates| safe if route.coordinates else '[]'
-        }};
-
-    if (routeData && routeData.length > 0) {
-        displayRoute(routeData);
-    } else {
-        console.warn('No route coordinates available');
-    }
-    } catch (error) {
-        console.error('Error loading route data:', error);
-    }
-}
-
-    function displayRoute(coordinates) {
-        if (!map || !coordinates || coordinates.length === 0) return;
-
-        try {
-            // Limpiar capa anterior si existe
-            if (routeLayer) {
-                map.removeLayer(routeLayer);
-            }
-
-            // Crear polyline de la ruta
-            routeLayer = L.polyline(coordinates, {
-                color: '#007bff',
-                weight: 4,
-                opacity: 0.8
+            // Añadir capa de mapa base
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
             }).addTo(map);
 
-            // Ajustar vista del mapa a la ruta
-            map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
-
-            // Añadir marcadores de inicio y fin
-            if (coordinates.length > 1) {
-                L.marker(coordinates[0], {
-                    icon: L.divIcon({
-                        html: '<div class="route-marker"><i class="fas fa-play text-success"></i></div>',
-                        className: 'route-marker-start',
-                        iconSize: [30, 30]
-                    })
-                }).addTo(map).bindPopup('Inicio de ruta');
-
-                L.marker(coordinates[coordinates.length - 1], {
-                    icon: L.divIcon({
-                        html: '<div class="route-marker"><i class="fas fa-flag-checkered text-danger"></i></div>',
-                        className: 'route-marker-end',
-                        iconSize: [30, 30]
-                    })
-                }).addTo(map).bindPopup('Fin de ruta');
-            }
-
-        } catch (error) {
-            console.error('Error displaying route:', error);
-        }
-    }
-
-    function startElapsedTimer() {
-        elapsedInterval = setInterval(updateElapsedTime, 1000);
-        updateElapsedTime(); // Actualizar inmediatamente
-    }
-
-    function updateElapsedTime() {
-        const now = new Date();
-        const elapsed = Math.floor((now - startTime) / 1000);
-
-        const hours = Math.floor(elapsed / 3600);
-        const minutes = Math.floor((elapsed % 3600) / 60);
-        const seconds = elapsed % 60;
-
-        const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        $('#elapsedTime').text(timeString);
-    }
-
-    function startGPS() {
-        if (!navigator.geolocation) {
-            showToast('Geolocalización no disponible', 'error');
-            return;
-        }
-
-        const options = {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 30000
-        };
-
-        showToast('Activando GPS...', 'info');
-
-        gpsWatchId = navigator.geolocation.watchPosition(
-            onGPSSuccess,
-            onGPSError,
-            options
-        );
-
-        gpsActive = true;
-        updateGPSUI();
-    }
-
-    function stopGPS() {
-        if (gpsWatchId !== null) {
-            navigator.geolocation.clearWatch(gpsWatchId);
-            gpsWatchId = null;
-        }
-
-        gpsActive = false;
-        updateGPSUI();
-        showToast('GPS desactivado', 'info');
-
-        // Ocultar elementos relacionados con GPS
-        $('#currentPosition').hide();
-        $('#navigationOverlay').hide();
-        $('#centerPositionBtn').hide();
-        $('#navigationPanel').hide();
-
-        // Remover marcador de posición
-        if (positionMarker && map) {
-            map.removeLayer(positionMarker);
-            positionMarker = null;
-        }
-    }
-
-    function onGPSSuccess(position) {
-        const coords = position.coords;
-        lastPosition = {
-            lat: coords.latitude,
-            lng: coords.longitude,
-            accuracy: coords.accuracy,
-            speed: coords.speed || 0,
-            heading: coords.heading || 0,
-            timestamp: new Date()
-        };
-
-        console.log('GPS position updated:', lastPosition);
-
-        // Calcular distancia recorrida
-        if (previousPosition) {
-            const distance = calculateDistance(
-                previousPosition.lat, previousPosition.lng,
-                lastPosition.lat, lastPosition.lng
-            );
-
-            // Solo sumar si la distancia es razonable (menos de 100m por segundo)
-            if (distance < 0.1) {
-                traveledDistance += distance;
-            }
-        }
-
-        previousPosition = lastPosition;
-
-        // Actualizar UI
-        updatePositionDisplay(lastPosition);
-        updateMapPosition(lastPosition);
-        updateStatistics(lastPosition);
-
-        // Enviar al servidor (cada 30 segundos para no sobrecargar)
-        const now = Date.now();
-        if (!lastTrackingUpdate || (now - lastTrackingUpdate) > 30000) {
-            sendPositionUpdate(lastPosition);
-            lastTrackingUpdate = now;
-        }
-
-        // Almacenar punto para el tracking
-        trackingPoints.push({
-            lat: lastPosition.lat,
-            lng: lastPosition.lng,
-            timestamp: lastPosition.timestamp.toISOString(),
-            speed: lastPosition.speed,
-            accuracy: lastPosition.accuracy
-        });
-    }
-
-    function onGPSError(error) {
-        let errorMessage = 'Error de GPS';
-
-        switch (error.code) {
-            case error.PERMISSION_DENIED:
-                errorMessage = 'Permiso de ubicación denegado';
-                break;
-            case error.POSITION_UNAVAILABLE:
-                errorMessage = 'Ubicación no disponible';
-                break;
-            case error.TIMEOUT:
-                errorMessage = 'Timeout de GPS';
-                break;
-        }
-
-        console.error('GPS Error:', error);
-        $('#gpsStatus').removeClass('bg-success gps-active').addClass('bg-danger').html('<i class="fas fa-exclamation-triangle me-1"></i>Error GPS');
-        showToast(errorMessage, 'error');
-    }
-
-    function updateGPSUI() {
-        const btn = $('#toggleGpsBtn');
-        const status = $('#gpsStatus');
-        const buttonText = $('#gpsButtonText');
-
-        if (gpsActive) {
-            btn.removeClass('btn-outline-primary').addClass('btn-outline-danger');
-            buttonText.text('Desactivar GPS');
-            status.removeClass('bg-secondary bg-danger').addClass('bg-success gps-active')
-                .html('<i class="fas fa-satellite-dish me-1"></i>GPS Activo');
-        } else {
-            btn.removeClass('btn-outline-danger').addClass('btn-outline-primary');
-            buttonText.text('Activar GPS');
-            status.removeClass('bg-success bg-danger gps-active').addClass('bg-secondary')
-                .html('<i class="fas fa-satellite-dish me-1"></i>GPS Inactivo');
-        }
-    }
-
-    function updatePositionDisplay(position) {
-        const coordsText = `${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}`;
-        const timeText = position.timestamp.toLocaleTimeString();
-        const accuracyText = `±${Math.round(position.accuracy)}m`;
-
-        $('#coordinates').html(`${coordsText}<br><small class="text-muted">${accuracyText}</small>`);
-        $('#lastUpdate').text(`Actualizado: ${timeText}`);
-        $('#overlayCoords').text(coordsText);
-        $('#overlayTime').text(timeText);
-
-        $('#gpsAccuracy').text(accuracyText).show();
-        $('#currentPosition').show();
-        $('#navigationOverlay').show();
-        $('#centerPositionBtn').show();
-    }
-
-    function updateMapPosition(position) {
-        if (!map) return;
-
-        try {
-            // Remover marcador anterior
-            if (positionMarker) {
-                map.removeLayer(positionMarker);
-            }
-
-            // Crear nuevo marcador de posición
-            positionMarker = L.marker([position.lat, position.lng], {
-                icon: L.divIcon({
-                    html: '<div class="position-marker"><i class="fas fa-location-arrow text-white"></i></div>',
-                    className: 'position-marker-icon',
-                    iconSize: [20, 20]
-                })
-            }).addTo(map);
-
-            // Añadir círculo de precisión si la precisión es buena
-            if (position.accuracy < 50) {
-                L.circle([position.lat, position.lng], {
-                    radius: position.accuracy,
+            // Dibujar la ruta optimizada completa
+            if (routePoints.length > 1) {
+                routePath = L.polyline(routePoints, {
                     color: '#007bff',
+                    weight: 6,
+                    opacity: 0.8,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(map);
+
+                // Ajustar el zoom para mostrar toda la ruta
+                map.fitBounds(routePath.getBounds(), { padding: [20, 20] });
+
+                // Agregar puntos intermedios importantes cada cierta distancia
+                if (routePoints.length > 10) {
+                    const step = Math.floor(routePoints.length / 5); // Mostrar 5 puntos intermedios
+                    for (let i = step; i < routePoints.length - 1; i += step) {
+                        L.circleMarker(routePoints[i], {
+                            radius: 4,
+                            fillColor: '#007bff',
+                            fillOpacity: 0.8,
+                            weight: 2,
+                            color: 'white'
+                        }).addTo(map);
+                    }
+                }
+            }
+
+            // Marcadores de inicio y fin más visibles
+            L.marker(routeStartPoint, {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+                    iconSize: [30, 48],
+                    iconAnchor: [15, 48],
+                    popupAnchor: [0, -48]
+                })
+            }).addTo(map).bindPopup('<strong>INICIO</strong><br>Punto de partida');
+
+            L.marker(routeEndPoint, {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                    iconSize: [30, 48],
+                    iconAnchor: [15, 48],
+                    popupAnchor: [0, -48]
+                })
+            }).addTo(map).bindPopup('<strong>DESTINO</strong><br>Punto de llegada');
+        }
+
+        function startLocationTracking() {
+            if ("geolocation" in navigator) {
+                positionWatchId = navigator.geolocation.watchPosition(
+                    updateCurrentPosition,
+                    handleLocationError,
+                    {
+                        enableHighAccuracy: true,
+                        maximumAge: 0,
+                        timeout: 10000
+                    }
+                );
+            } else {
+                alert('Tu dispositivo no soporta geolocalización.');
+            }
+        }
+
+        function updateCurrentPosition(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const currentPosition = [lat, lng];
+
+            // Actualizar marcador de posición actual
+            if (currentPositionMarker) {
+                currentPositionMarker.setLatLng(currentPosition);
+            } else {
+                currentPositionMarker = L.circleMarker(currentPosition, {
+                    radius: 12,
                     fillColor: '#007bff',
-                    fillOpacity: 0.1,
-                    weight: 1
+                    fillOpacity: 0.9,
+                    weight: 3,
+                    color: 'white',
+                    className: 'location-marker'
+                }).addTo(map);
+
+                // Agregar un punto interno para mejor visibilidad
+                L.circleMarker(currentPosition, {
+                    radius: 6,
+                    fillColor: 'white',
+                    fillOpacity: 1,
+                    weight: 0
                 }).addTo(map);
             }
 
-            // Mostrar panel de navegación en móvil
-            updateNavigationPanel(position);
+            // Centrar el mapa en la posición actual con zoom apropiado
+            map.setView(currentPosition, Math.max(16, map.getZoom()));
 
-        } catch (error) {
-            console.error('Error updating map position:', error);
-        }
-    }
-
-    function updateStatistics(position) {
-        // Actualizar velocidad
-        const speedKmh = (position.speed || 0) * 3.6; // m/s a km/h
-        $('#currentSpeed').text(`${speedKmh.toFixed(1)} km/h`);
-
-        // Actualizar distancia recorrida
-        $('#traveledDistance').text(`${traveledDistance.toFixed(1)} km`);
-    }
-
-    function updateNavigationPanel(position) {
-        // Mostrar panel de navegación en móviles
-        if (window.innerWidth <= 768) {
-            $('#navigationPanel').show();
-
-            // Aquí podrías agregar lógica para turn-by-turn navigation
-            // Por ahora, mostrar información básica
-            const speed = (position.speed || 0) * 3.6;
-
-            if (speed > 5) {
-                $('#turnInstruction').text('Continúa por la ruta');
-                $('#turnDistance').text(`${speed.toFixed(0)} km/h`);
-                $('#turnIcon').removeClass().addClass('fas fa-arrow-up fa-2x');
-            } else {
-                $('#turnInstruction').text('Detenido');
-                $('#turnDistance').text('0 km/h');
-                $('#turnIcon').removeClass().addClass('fas fa-pause fa-2x');
-            }
-        }
-    }
-
-    function calculateDistance(lat1, lng1, lat2, lng2) {
-        const R = 6371; // Radio de la Tierra en km
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLng / 2) * Math.sin(dLng / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-    }
-
-    function centerOnRoute() {
-        if (routeLayer && map) {
-            map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
-        }
-    }
-
-    function centerOnPosition() {
-        if (lastPosition && map) {
-            map.setView([lastPosition.lat, lastPosition.lng], 16);
-        }
-    }
-
-    function toggleMapType() {
-        const types = ['street', 'satellite', 'terrain'];
-        const currentIndex = types.indexOf(currentMapType);
-        currentMapType = types[(currentIndex + 1) % types.length];
-
-        updateMapLayer();
-
-        // Actualizar icono del botón
-        const icons = {
-            'street': 'fas fa-road',
-            'satellite': 'fas fa-satellite',
-            'terrain': 'fas fa-mountain'
-        };
-
-        $('#mapTypeBtn i').removeClass().addClass(icons[currentMapType]);
-        showToast(`Vista cambiada: ${currentMapType}`, 'info');
-    }
-
-    function toggleFullscreen() {
-        $('#fullscreenModal').modal('show');
-
-        // Inicializar mapa de pantalla completa
-        $('#fullscreenModal').on('shown.bs.modal', function () {
-            if (!fullscreenMap) {
-                fullscreenMap = L.map('fullscreenMap').setView([-3.8167, -78.7500], 13);
-                updateMapLayer();
-
-                // Copiar ruta y posición actual
-                if (routeLayer) {
-                    L.polyline(routeLayer.getLatLngs(), {
-                        color: '#007bff',
-                        weight: 4,
-                        opacity: 0.8
-                    }).addTo(fullscreenMap);
-                }
-
-                if (lastPosition) {
-                    L.marker([lastPosition.lat, lastPosition.lng]).addTo(fullscreenMap);
-                    fullscreenMap.setView([lastPosition.lat, lastPosition.lng], 16);
+            // Calcular velocidad
+            let speed = 0;
+            if (position.coords.speed !== null && position.coords.speed >= 0) {
+                speed = position.coords.speed * 3.6; // Convertir m/s a km/h
+            } else if (lastPosition) {
+                // Calcular velocidad basada en distancia y tiempo
+                const timeDiff = (Date.now() - lastPosition.timestamp) / 1000; // segundos
+                if (timeDiff > 0) {
+                    const dist = calculateDistance(currentPosition, lastPosition.coords) * 1000; // metros
+                    speed = (dist / timeDiff) * 3.6; // km/h
                 }
             }
-        });
-    }
 
-    function sendPositionUpdate(position) {
-        if (!gpsActive) return;
+            // Actualizar información de navegación
+            updateNavigationInfo(currentPosition, speed);
 
-        const data = {
-            position: {
-                lat: position.lat,
-                lng: position.lng,
-                accuracy: position.accuracy,
-                speed: position.speed,
-                heading: position.heading,
-                timestamp: position.timestamp.toISOString()
-            }
-        };
+            // Guardar posición en historial
+            positionsHistory.push({
+                lat: lat,
+                lng: lng,
+                timestamp: new Date().toISOString(),
+                speed: speed
+            });
 
-        makeRequest('/driver/update_route_progress/{{ completion.id }}', data,
-            function (response) {
-                console.log('Position sent successfully');
-            },
-            function (error) {
-                console.error('Error sending position:', error);
-            }
-        );
-    }
+            // Dibujar el recorrido realizado
+            if (positionsHistory.length > 1) {
+                const trackPoints = positionsHistory.map(p => [p.lat, p.lng]);
 
-    function pauseNavigation() {
-        if (gpsActive) {
-            stopGPS();
-            showToast('Navegación pausada', 'info');
-        } else {
-            showToast('La navegación ya está pausada', 'warning');
-        }
-    }
-
-    function updateTripSummary() {
-        // Calcular tiempo total
-        const now = new Date();
-        const totalTime = Math.floor((now - startTime) / 1000);
-        const hours = Math.floor(totalTime / 3600);
-        const minutes = Math.floor((totalTime % 3600) / 60);
-
-        $('#summaryTime').text(`${hours}h ${minutes}m`);
-        $('#summaryDistance').text(`${traveledDistance.toFixed(1)} km`);
-
-        // Calcular velocidad promedio
-        const avgSpeed = totalTime > 0 ? (traveledDistance / (totalTime / 3600)) : 0;
-        $('#summarySpeed').text(`${avgSpeed.toFixed(1)} km/h`);
-
-        $('#tripSummary').show();
-    }
-
-    function completeRoute() {
-        const fuelLevel = $('input[name="fuel_end_level"]:checked').val();
-        const notes = $('#completion_notes').val().trim();
-
-        if (!fuelLevel) {
-            showToast('Selecciona el nivel de combustible', 'warning');
-            return;
-        }
-
-        if (!confirm(`¿Completar ruta con combustible ${fuelLevel}/4?`)) {
-            return;
-        }
-
-        const button = $('#completeRouteBtn');
-        const originalText = button.html();
-        button.html('<span class="spinner-border spinner-border-sm me-2"></span>Completando...').prop('disabled', true);
-
-        const requestData = {
-            fuel_level: parseInt(fuelLevel),
-            notes: notes,
-            final_position: lastPosition,
-            trip_summary: {
-                total_time: Math.floor((new Date() - startTime) / 1000),
-                traveled_distance: traveledDistance,
-                tracking_points: trackingPoints
-            }
-        };
-
-        makeRequest('/driver/complete_route/{{ completion.id }}', requestData,
-            function (response) {
-                if (gpsActive) stopGPS();
-
-                // Detener timer
-                if (elapsedInterval) {
-                    clearInterval(elapsedInterval);
+                // Remover línea anterior si existe
+                if (window.userTrack) {
+                    map.removeLayer(window.userTrack);
                 }
 
-                showToast(response.message || 'Ruta completada exitosamente', 'success');
-                $('#completeModal').modal('hide');
-
-                setTimeout(() => {
-                    window.location.href = '/driver/dashboard';
-                }, 2000);
-            },
-            function (errorMessage) {
-                showToast(errorMessage, 'error');
-                button.html(originalText).prop('disabled', false);
-            }
-        );
-    }
-
-    function cancelRoute(completionId) {
-        const reason = prompt('¿Por qué cancelas la ruta?');
-
-        if (reason !== null && reason.trim() !== '') {
-            if (gpsActive) stopGPS();
-
-            // Detener timer
-            if (elapsedInterval) {
-                clearInterval(elapsedInterval);
+                // Dibujar nueva línea del recorrido
+                window.userTrack = L.polyline(trackPoints, {
+                    color: '#28a745',
+                    weight: 4,
+                    opacity: 0.8,
+                    dashArray: '10, 5'
+                }).addTo(map);
             }
 
-            const requestData = {
-                reason: reason.trim(),
-                final_position: lastPosition,
-                trip_summary: {
-                    total_time: Math.floor((new Date() - startTime) / 1000),
-                    traveled_distance: traveledDistance,
-                    tracking_points: trackingPoints
-                }
+            // Enviar posición al servidor
+            sendPositionToServer(lat, lng);
+
+            lastPosition = {
+                coords: currentPosition,
+                timestamp: Date.now()
             };
-
-            makeRequest(`/driver/cancel_route/${completionId}`, requestData,
-                function (response) {
-                    showToast(response.message || 'Ruta cancelada', 'success');
-                    setTimeout(() => {
-                        window.location.href = '/driver/dashboard';
-                    }, 2000);
-                },
-                function (errorMessage) {
-                    showToast(errorMessage, 'error');
-                }
-            );
-        }
-    }
-
-    function showToast(message, type = 'info') {
-        const toastEl = $('#gpsToast');
-        const toastBody = $('#gpsToastBody');
-
-        let bgClass = 'bg-info';
-        let icon = 'fas fa-info-circle';
-
-        switch (type) {
-            case 'success':
-                bgClass = 'bg-success text-white';
-                icon = 'fas fa-check-circle';
-                break;
-            case 'error':
-            case 'danger':
-                bgClass = 'bg-danger text-white';
-                icon = 'fas fa-exclamation-triangle';
-                break;
-            case 'warning':
-                bgClass = 'bg-warning';
-                icon = 'fas fa-exclamation-triangle';
-                break;
         }
 
-        toastEl.removeClass('bg-info bg-success bg-danger bg-warning text-white').addClass(bgClass);
-        toastEl.find('.toast-header i').removeClass().addClass(icon + ' me-2');
-        toastBody.text(message);
+        function updateNavigationInfo(currentPosition, speed) {
+            // Calcular distancia al destino usando la ruta optimizada
+            let distanceToEnd;
 
-        const toast = new bootstrap.Toast(toastEl[0], {
-            delay: type === 'error' ? 5000 : 3000
-        });
-        toast.show();
-    }
+            if (routePoints.length > 2) {
+                // Encontrar el punto más cercano en la ruta
+                let minDistance = Infinity;
+                let closestPointIndex = 0;
 
-    function makeRequest(url, data, successCallback, errorCallback) {
-        $.ajax({
-            url: url,
-            method: 'POST',
-            data: JSON.stringify(data),
-            contentType: 'application/json',
-            timeout: 15000,
-            beforeSend: function (xhr) {
-                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            },
-            success: function (response) {
-                if (typeof successCallback === 'function') {
-                    successCallback(response);
-                }
-            },
-            error: function (xhr, status, error) {
-                console.error('AJAX Error:', {
-                    url: url,
-                    status: xhr.status,
-                    statusText: xhr.statusText,
-                    error: error,
-                    response: xhr.responseText
-                });
-
-                let errorMessage = 'Error de conexión';
-
-                if (xhr.status === 0) {
-                    errorMessage = 'Sin conexión a internet';
-                } else if (xhr.status === 404) {
-                    errorMessage = 'Recurso no encontrado';
-                } else if (xhr.status === 500) {
-                    errorMessage = 'Error del servidor';
-                } else if (status === 'timeout') {
-                    errorMessage = 'Tiempo de espera agotado';
-                } else {
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        errorMessage = response.error || response.message || errorMessage;
-                    } catch (e) {
-                        // Usar mensaje por defecto
+                for (let i = 0; i < routePoints.length; i++) {
+                    const dist = calculateDistance(currentPosition, routePoints[i]);
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                        closestPointIndex = i;
                     }
                 }
 
-                if (typeof errorCallback === 'function') {
-                    errorCallback(errorMessage);
+                // Calcular distancia restante desde el punto más cercano hasta el final
+                distanceToEnd = 0;
+                for (let i = closestPointIndex; i < routePoints.length - 1; i++) {
+                    distanceToEnd += calculateDistance(routePoints[i], routePoints[i + 1]);
                 }
+
+                // Agregar la distancia desde la posición actual al punto más cercano
+                distanceToEnd += minDistance;
+            } else {
+                // Fallback: distancia directa al destino
+                distanceToEnd = calculateDistance(currentPosition, routeEndPoint);
             }
-        });
-    }
 
-    function handleVisibilityChange() {
-        if (document.hidden) {
-            console.log('Page hidden, reducing GPS frequency');
-        } else {
-            console.log('Page visible, resuming normal GPS updates');
-            if (map) {
-                map.invalidateSize();
+            // Mostrar distancia
+            $('#remainingDistance').text(distanceToEnd < 1 ?
+                (distanceToEnd * 1000).toFixed(0) + ' m' :
+                distanceToEnd.toFixed(1) + ' km'
+            );
+
+            // Calcular tiempo estimado
+            const avgSpeed = speed > 5 ? speed : 30; // Si velocidad es muy baja, usar 30 km/h
+            const estimatedMinutes = Math.ceil((distanceToEnd / avgSpeed) * 60);
+
+            let timeText;
+            if (estimatedMinutes > 60) {
+                const hours = Math.floor(estimatedMinutes / 60);
+                const mins = estimatedMinutes % 60;
+                timeText = `${hours}h ${mins}m`;
+            } else {
+                timeText = `${estimatedMinutes} min`;
+            }
+
+            $('#estimatedTime').text(timeText);
+            $('#currentSpeed').text(speed.toFixed(0) + ' km/h');
+
+            // Cambiar color del marcador según la velocidad
+            if (currentPositionMarker) {
+                const color = speed > 0 ? '#28a745' : '#ffc107'; // Verde si se mueve, amarillo si está parado
+                currentPositionMarker.setStyle({
+                    fillColor: color
+                });
             }
         }
-    }
 
-    function handleConnectionChange() {
-        const isOnline = navigator.onLine;
-        const connectionStatus = $('#connectionStatus');
-
-        if (isOnline) {
-            connectionStatus.hide();
-        } else {
-            connectionStatus.show();
+        function calculateDistance(point1, point2) {
+            const R = 6371; // Radio de la Tierra en km
+            const dLat = (point2[0] - point1[0]) * Math.PI / 180;
+            const dLon = (point2[1] - point1[1]) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(point1[0] * Math.PI / 180) * Math.cos(point2[0] * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
         }
-    }
 
-    // Limpiar recursos al salir
-    window.addEventListener('beforeunload', function () {
-        if (gpsActive) {
-            stopGPS();
-        }
-        if (elapsedInterval) {
-            clearInterval(elapsedInterval);
-        }
-    });
-
-    // Manejar cambios de orientación en móvil
-    window.addEventListener('orientationchange', function () {
-        setTimeout(() => {
-            if (map) {
-                map.invalidateSize();
-                if (routeLayer) {
-                    map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
+        function sendPositionToServer(lat, lng) {
+            $.ajax({
+                url: '{{ url_for("driver_update_route_progress", completion_id=completion.id) }}',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    position: { lat: lat, lng: lng }
+                }),
+                success: function (response) {
+                    console.log('Posición actualizada');
+                },
+                error: function (xhr) {
+                    console.error('Error al actualizar posición');
                 }
-            }
-            if (fullscreenMap) {
-                fullscreenMap.invalidateSize();
-            }
-        }, 500);
-    });
+            });
+        }
 
-    // Función de utilidad para detectar dispositivo móvil
-    function isMobileDevice() {
-        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    }
+        function handleLocationError(error) {
+            console.error('Error de geolocalización:', error);
+            alert('No se pudo obtener tu ubicación. Verifica los permisos de GPS.');
+        }
 
-    // Aplicar configuraciones específicas para móvil
-    if (isMobileDevice()) {
-        console.log('Mobile device detected, applying mobile optimizations');
-
-        $(document).ready(function () {
-            // Prevenir zoom accidental en inputs
-            $('input, textarea, select').on('focus', function () {
-                $('meta[name=viewport]').attr('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0');
-            }).on('blur', function () {
-                $('meta[name=viewport]').attr('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+        function setupEventHandlers() {
+            // Completar ruta
+            $('#completeBtn').click(function () {
+                $('#completeModal').modal('show');
             });
 
-            // Optimizar altura del mapa para móvil
-            $('#navigationMap').css('height', '60vh');
+            $('#confirmCompleteBtn').click(function () {
+                const notes = $('#completionNotes').val();
 
-            // Añadir clase para estilos móviles
-            $('body').addClass('mobile-device');
+                $.ajax({
+                    url: '{{ url_for("driver_complete_route", completion_id=completion.id) }}',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ notes: notes }),
+                    success: function (response) {
+                        if (response.success) {
+                            alert('¡Ruta completada exitosamente!');
+                            window.location.href = '{{ url_for("driver_dashboard") }}';
+                        } else {
+                            alert('Error: ' + response.message);
+                        }
+                    },
+                    error: function () {
+                        alert('Error al completar la ruta');
+                    }
+                });
+            });
+
+            // Cancelar ruta
+            $('#cancelBtn').click(function () {
+                $('#cancelModal').modal('show');
+            });
+
+            $('#confirmCancelBtn').click(function () {
+                const reason = $('#cancelReason').val();
+                if (!reason.trim()) {
+                    alert('Debes proporcionar un motivo para cancelar');
+                    return;
+                }
+
+                $.ajax({
+                    url: '{{ url_for("driver_cancel_route", completion_id=completion.id) }}',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ reason: reason }),
+                    success: function (response) {
+                        if (response.success) {
+                            alert('Ruta cancelada');
+                            window.location.href = '{{ url_for("driver_dashboard") }}';
+                        } else {
+                            alert('Error: ' + response.message);
+                        }
+                    },
+                    error: function () {
+                        alert('Error al cancelar la ruta');
+                    }
+                });
+            });
+        }
+
+        // Limpiar al salir
+        $(window).on('beforeunload', function () {
+            if (positionWatchId !== null) {
+                navigator.geolocation.clearWatch(positionWatchId);
+            }
         });
-    }
+    </script>
+</body>
 
-    // Debug para identificar problemas de carga
-    console.log('=== NAVIGATION DEBUG INFO ===');
-    console.log('Route coordinates:', {{ route.coordinates | length if route.coordinates else 0 }} + ' points');
-    console.log('Completion ID:', {{ completion.id }});
-    console.log('Started at:', '{{ completion.started_at.isoformat() }}');
-    console.log('Vehicle:', '{{ completion.vehicle.plate_number if completion.vehicle else "N/A" }}');
-    console.log('User agent:', navigator.userAgent);
-    console.log('Screen size:', window.screen.width + 'x' + window.screen.height);
-    console.log('Viewport size:', window.innerWidth + 'x' + window.innerHeight);
-    console.log('Geolocation support:', 'geolocation' in navigator);
-    console.log('Online status:', navigator.onLine);
-    console.log('===============================');
-</script>
-{% endblock %}
+</html>
