@@ -1478,6 +1478,7 @@ def inject_global_vars():
 # ================================
 # CONFIGURACIÓN PARA PRODUCCIÓN
 # ================================
+app = create_app()
 
 if __name__ == '__main__':
     with app.app_context():
@@ -1488,4 +1489,3 @@ if __name__ == '__main__':
         port=int(os.environ.get('PORT', 5000)),
         debug=os.environ.get('FLASK_ENV') == 'development'
     )
-    app = create_app()
