@@ -108,6 +108,15 @@ class Route(db.Model):
     distance = db.Column(db.Float, nullable=True)
     active = db.Column(db.Boolean, default=True)
     completions = db.relationship('RouteCompletion', backref='route', lazy=True)
+    original_distance = db.Column(db.Float, nullable=True)  # Distancia original antes de optimizar
+    distance_saved_km = db.Column(db.Float, nullable=True)  # Kilómetros ahorrados
+    distance_saved_percent = db.Column(db.Float, nullable=True)  # Porcentaje de mejora
+    estimated_time_saved_minutes = db.Column(db.Integer, nullable=True)  # Tiempo ahorrado en minutos
+    optimization_level = db.Column(db.String(20), nullable=True)  # Nivel de optimización usado
+    loops_removed = db.Column(db.Integer, nullable=True)  # Número de bucles eliminados
+    points_reduced = db.Column(db.Integer, nullable=True)  # Puntos reducidos en la optimización
+    
+    completions = db.relationship('RouteCompletion', backref='route', lazy=True)
 
 class RouteCompletion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -122,6 +131,8 @@ class RouteCompletion(db.Model):
     fuel_start = db.Column(db.Integer, nullable=True)
     fuel_end = db.Column(db.Integer, nullable=True)  
     fuel_consumption = db.Column(db.Integer, nullable=True)
+    # NUEVO CAMPO PARA EL MAPA DEL RECORRIDO
+    track_map_path = db.Column(db.String(200), nullable=True)
     vehicle = db.relationship('Vehicle', backref='route_completions')
 
 # ==================== DECORADORES DE AUTORIZACIÓN ====================
@@ -429,6 +440,284 @@ def get_route_performance_data():
     except Exception as e:
         print(f"Error en get_route_performance_data: {e}")
         return []
+    
+
+def generate_completion_map(completion):
+    """Generar mapa visual del recorrido completado"""
+    try:
+        import folium
+        import json
+        from datetime import datetime
+        import uuid
+        import os
+        
+        if not completion.track_data:
+            return None
+        
+        # Cargar datos del tracking
+        track_points = json.loads(completion.track_data)
+        
+        if not track_points or len(track_points) < 2:
+            return None
+        
+        # Crear el mapa centrado en el primer punto
+        center_lat = track_points[0]['lat']
+        center_lng = track_points[0]['lng']
+        
+        # Crear mapa con estilo profesional
+        completion_map = folium.Map(
+            location=[center_lat, center_lng],
+            zoom_start=14,
+            tiles='OpenStreetMap'
+        )
+        
+        # Extraer coordenadas para la ruta
+        route_coords = [(point['lat'], point['lng']) for point in track_points]
+        
+        # Agregar la línea del recorrido real
+        folium.PolyLine(
+            locations=route_coords,
+            color='#e74c3c',  # Rojo para el recorrido real
+            weight=4,
+            opacity=0.8,
+            popup=f'Recorrido Real - {completion.route.name}'
+        ).add_to(completion_map)
+        
+        # Marcador de inicio (verde)
+        folium.Marker(
+            location=[track_points[0]['lat'], track_points[0]['lng']],
+            popup=f'''
+            <div style="min-width: 200px;">
+                <h5>🚀 INICIO</h5>
+                <p><strong>Ruta:</strong> {completion.route.name}</p>
+                <p><strong>Conductor:</strong> {completion.driver.first_name} {completion.driver.last_name}</p>
+                <p><strong>Vehículo:</strong> {completion.vehicle.brand} {completion.vehicle.model}</p>
+                <p><strong>Placa:</strong> {completion.vehicle.plate_number}</p>
+                <p><strong>Iniciado:</strong> {completion.started_at.strftime('%d/%m/%Y %H:%M')}</p>
+                <p><strong>Combustible inicial:</strong> {completion.fuel_start}/4</p>
+            </div>
+            ''',
+            icon=folium.Icon(color='green', icon='play', prefix='fa')
+        ).add_to(completion_map)
+        
+        # Marcador de fin (rojo)
+        folium.Marker(
+            location=[track_points[-1]['lat'], track_points[-1]['lng']],
+            popup=f'''
+            <div style="min-width: 200px;">
+                <h5>🏁 FIN</h5>
+                <p><strong>Completado:</strong> {completion.completed_at.strftime('%d/%m/%Y %H:%M')}</p>
+                <p><strong>Combustible final:</strong> {completion.fuel_end}/4</p>
+                <p><strong>Consumo:</strong> {completion.fuel_consumption}/4 tanques</p>
+                <p><strong>Duración:</strong> {str(completion.completed_at - completion.started_at).split('.')[0]}</p>
+                {f"<p><strong>Notas:</strong> {completion.notes}</p>" if completion.notes else ""}
+            </div>
+            ''',
+            icon=folium.Icon(color='red', icon='stop', prefix='fa')
+        ).add_to(completion_map)
+        
+        # Agregar marcadores cada cierto número de puntos para mostrar progreso
+        if len(track_points) > 4:
+            interval = max(1, len(track_points) // 4)
+            for i in range(interval, len(track_points) - 1, interval):
+                point = track_points[i]
+                timestamp = datetime.fromisoformat(point['timestamp']).strftime('%H:%M:%S')
+                
+                folium.CircleMarker(
+                    location=[point['lat'], point['lng']],
+                    radius=3,
+                    popup=f'Punto de control - {timestamp}',
+                    color='#3498db',
+                    fillColor='#3498db',
+                    fillOpacity=0.7
+                ).add_to(completion_map)
+        
+        # Agregar información del recorrido en el mapa
+        legend_html = f'''
+        <div style="position: fixed; 
+                    top: 10px; right: 10px; width: 300px; height: auto; 
+                    background-color: white; border:2px solid grey; z-index:9999; 
+                    font-size:14px; padding: 10px; border-radius: 5px;
+                    box-shadow: 0 0 15px rgba(0,0,0,0.2);">
+            <h4 style="margin-top: 0;">📊 Resumen del Recorrido</h4>
+            <p><strong>Ruta:</strong> {completion.route.name}</p>
+            <p><strong>Conductor:</strong> {completion.driver.first_name} {completion.driver.last_name}</p>
+            <p><strong>Vehículo:</strong> {completion.vehicle.brand} {completion.vehicle.model} ({completion.vehicle.plate_number})</p>
+            <p><strong>Fecha:</strong> {completion.completed_at.strftime('%d/%m/%Y')}</p>
+            <p><strong>Duración:</strong> {str(completion.completed_at - completion.started_at).split('.')[0]}</p>
+            <p><strong>Puntos registrados:</strong> {len(track_points)}</p>
+            <p><strong>Combustible:</strong> {completion.fuel_start}/4 → {completion.fuel_end}/4</p>
+            <p><strong>Consumo:</strong> {completion.fuel_consumption}/4 tanques</p>
+            <hr>
+            <p style="font-size: 12px; margin-bottom: 0;">
+                🟢 Inicio &nbsp;&nbsp;&nbsp; 🔴 Fin &nbsp;&nbsp;&nbsp; 
+                <span style="color: #e74c3c;">━━━</span> Recorrido real
+            </p>
+        </div>
+        '''
+        completion_map.get_root().html.add_child(folium.Element(legend_html))
+        
+        # Agregar la ruta planificada original si está disponible
+        if completion.route.gpx_path and os.path.exists(completion.route.gpx_path):
+            try:
+                from services.route_optimizer import AdvancedRouteOptimizer
+                optimizer = AdvancedRouteOptimizer()
+                original_points = optimizer.load_gpx_points(completion.route.gpx_path)
+                
+                # Agregar la ruta original en color diferente
+                folium.PolyLine(
+                    locations=original_points,
+                    color='#3498db',  # Azul para la ruta planificada
+                    weight=2,
+                    opacity=0.6,
+                    dash_array='5, 5',
+                    popup='Ruta Planificada Original'
+                ).add_to(completion_map)
+                
+                # Actualizar la leyenda para incluir la ruta original
+                legend_html = legend_html.replace(
+                    '<span style="color: #e74c3c;">━━━</span> Recorrido real',
+                    '<span style="color: #e74c3c;">━━━</span> Recorrido real &nbsp;&nbsp;&nbsp; <span style="color: #3498db;">┅┅┅</span> Ruta planificada'
+                )
+                
+            except Exception as e:
+                print(f"No se pudo cargar la ruta original: {e}")
+        
+        return completion_map
+        
+    except Exception as e:
+        print(f"Error generando mapa de recorrido: {e}")
+        return None
+
+
+
+def get_recent_completions(limit=10):
+    """Obtener recorridos completados recientes"""
+    try:
+        return RouteCompletion.query.filter_by(
+            status='completed'
+        ).order_by(
+            RouteCompletion.completed_at.desc()
+        ).limit(limit).all()
+    except Exception as e:
+        print(f"Error obteniendo recorridos recientes: {e}")
+        return []
+    
+
+def get_optimized_routes_count():
+    """Obtener rutas optimizadas de forma segura"""
+    try:
+        # Verificar si las columnas existen primero
+        inspector = db.inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('route')]
+        
+        if 'distance_saved_km' in columns:
+            # Las columnas existen, usar consulta normal
+            optimized_routes = Route.query.filter(
+                Route.active == True,
+                Route.distance_saved_km.isnot(None),
+                Route.distance_saved_km > 0
+            ).all()
+            
+            total_km_saved = sum([route.distance_saved_km for route in optimized_routes])
+            
+            return {
+                'count': len(optimized_routes),
+                'total_km_saved': total_km_saved,
+                'routes': optimized_routes
+            }
+        else:
+            # Las columnas no existen, devolver valores por defecto
+            print("Columnas de optimización no encontradas, usando valores por defecto")
+            return {
+                'count': 0,
+                'total_km_saved': 0,
+                'routes': []
+            }
+    except Exception as e:
+        print(f"Error en get_optimized_routes_count: {e}")
+        return {'count': 0, 'total_km_saved': 0, 'routes': []}
+
+def get_optimization_summary():
+    """Obtener resumen de optimizaciones de forma segura"""
+    try:
+        # Verificar si las columnas existen
+        inspector = db.inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('route')]
+        
+        required_columns = ['distance_saved_km', 'distance_saved_percent', 'estimated_time_saved_minutes']
+        columns_exist = all(col in columns for col in required_columns)
+        
+        if columns_exist:
+            # Ejecutar lógica normal
+            optimized_routes = Route.query.filter(
+                Route.active == True,
+                Route.distance_saved_km.isnot(None),
+                Route.distance_saved_km > 0
+            ).all()
+            
+            if not optimized_routes:
+                return {
+                    'total_routes_optimized': 0,
+                    'total_km_saved': 0,
+                    'total_time_saved_minutes': 0,
+                    'total_fuel_saved_liters': 0,
+                    'average_improvement_percent': 0,
+                    'best_optimization': None
+                }
+            
+            total_km_saved = sum([route.distance_saved_km for route in optimized_routes])
+            total_time_saved = sum([route.estimated_time_saved_minutes or 0 for route in optimized_routes])
+            
+            # Calcular combustible ahorrado
+            def calculate_fuel_savings(km_saved):
+                if not km_saved or km_saved <= 0:
+                    return 0
+                liters_per_100km = 8
+                return (km_saved * liters_per_100km) / 100
+            
+            total_fuel_saved = sum([calculate_fuel_savings(route.distance_saved_km) for route in optimized_routes])
+            
+            # Mejora promedio
+            improvements = [route.distance_saved_percent for route in optimized_routes if route.distance_saved_percent]
+            average_improvement = sum(improvements) / len(improvements) if improvements else 0
+            
+            # Mejor optimización
+            best_route = max(optimized_routes, key=lambda r: r.distance_saved_percent or 0) if optimized_routes else None
+            
+            return {
+                'total_routes_optimized': len(optimized_routes),
+                'total_km_saved': round(total_km_saved, 2),
+                'total_time_saved_minutes': int(total_time_saved),
+                'total_fuel_saved_liters': round(total_fuel_saved, 1),
+                'average_improvement_percent': round(average_improvement, 1),
+                'best_optimization': {
+                    'route_name': best_route.name,
+                    'improvement': round(best_route.distance_saved_percent or 0, 1),
+                    'km_saved': round(best_route.distance_saved_km or 0, 2)
+                } if best_route else None
+            }
+        else:
+            # Columnas no existen, devolver valores por defecto
+            print("Columnas de optimización no encontradas, usando valores por defecto")
+            return {
+                'total_routes_optimized': 0,
+                'total_km_saved': 0,
+                'total_time_saved_minutes': 0,
+                'total_fuel_saved_liters': 0,
+                'average_improvement_percent': 0,
+                'best_optimization': None
+            }
+    except Exception as e:
+        print(f"Error en get_optimization_summary: {e}")
+        return {
+            'total_routes_optimized': 0,
+            'total_km_saved': 0,
+            'total_time_saved_minutes': 0,
+            'total_fuel_saved_liters': 0,
+            'average_improvement_percent': 0,
+            'best_optimization': None
+        }
 
 # ==================== CREACIÓN DE LA APLICACIÓN ====================
 
@@ -451,6 +740,17 @@ def create_app():
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
+
+
+
+    @app.context_processor
+    def inject_global_data():
+        """Inyectar datos globales a todos los templates"""
+        return {
+            'get_recent_completions': get_recent_completions
+        }
+
+
     
     # Filtros de template
     @app.template_filter('datetime_format')
@@ -478,6 +778,86 @@ def create_app():
         if level is None:
             return "N/A"
         return f"{level}/4"
+    
+    @app.template_filter('from_json')
+    def from_json_filter(value):
+        """Convertir string JSON a objeto Python"""
+        try:
+            import json
+            if isinstance(value, str):
+                return json.loads(value)
+            return value
+        except:
+            return []
+
+
+    @app.template_filter('format_distance_saved')
+    def format_distance_saved(km_value):
+        """Formatear kilómetros ahorrados"""
+        if km_value is None or km_value == 0:
+            return "Sin ahorro"
+        return f"{km_value:.2f} km ahorrados"
+
+    @app.template_filter('format_time_saved')
+    def format_time_saved(minutes):
+        """Formatear tiempo ahorrado"""
+        if minutes is None or minutes == 0:
+            return "Sin ahorro de tiempo"
+        if minutes < 60:
+            return f"~{minutes} min ahorrados"
+        else:
+            hours = minutes // 60
+            remaining_minutes = minutes % 60
+            return f"~{hours}h {remaining_minutes}m ahorrados"
+
+    @app.template_filter('format_optimization_level')
+    def format_optimization_level(level):
+        """Formatear nivel de optimización"""
+        levels = {
+            'basic': 'Básica',
+            'medium': 'Media', 
+            'advanced': 'Avanzada',
+            'none': 'Sin optimización'
+        }
+        return levels.get(level, level.capitalize() if level else 'No especificado')
+
+
+
+    @app.template_filter('format_optimization_level')
+    def format_optimization_level(level):
+        """Formatear nivel de optimización"""
+        if not level:
+            return 'No especificado'
+        
+        levels = {
+            'basic': 'Básica',
+            'medium': 'Media', 
+            'advanced': 'Avanzada',
+            'none': 'Sin optimización'
+        }
+        return levels.get(level, level.capitalize())
+
+    @app.template_filter('format_distance_saved')
+    def format_distance_saved(km_value):
+        """Formatear kilómetros ahorrados"""
+        if km_value is None or km_value == 0:
+            return "Sin ahorro"
+        return f"{km_value:.2f} km ahorrados"
+
+    @app.template_filter('format_time_saved')
+    def format_time_saved(minutes):
+        """Formatear tiempo ahorrado"""
+        if minutes is None or minutes == 0:
+            return "Sin ahorro de tiempo"
+        if minutes < 60:
+            return f"~{minutes} min ahorrados"
+        else:
+            hours = minutes // 60
+            remaining_minutes = minutes % 60
+            return f"~{hours}h {remaining_minutes}m ahorrados"
+
+
+
 
     # ==================== RUTAS PRINCIPALES ====================
     
@@ -540,14 +920,19 @@ def create_app():
         completed_routes = RouteCompletion.query.filter_by(status='completed').count()
         in_progress_routes = RouteCompletion.query.filter_by(status='in_progress').count()
         
-        return render_template('admin/dashboard.html', 
-                             total_users=total_users,
-                             total_drivers=total_drivers,
-                             total_vehicles=total_vehicles, 
-                             total_routes=total_routes,
-                             recent_routes=recent_routes,
-                             completed_routes=completed_routes,
-                             in_progress_routes=in_progress_routes)
+        return render_template(
+        'admin/dashboard.html',
+        total_users=total_users,
+        total_drivers=total_drivers,
+        total_vehicles=total_vehicles, 
+        total_routes=total_routes,
+        recent_routes=recent_routes,
+        completed_routes=completed_routes,
+        in_progress_routes=in_progress_routes,
+        get_optimized_routes_count=get_optimized_routes_count,
+        get_optimization_summary=get_optimization_summary,
+)
+
 
     # [Continúa con todas las rutas del administrador...]
     @app.route('/admin/users')
@@ -623,7 +1008,7 @@ def create_app():
     @admin_required
     def create_route():
         if request.method == 'POST':
-            print("=== INICIANDO CREACIÓN DE RUTA ===")
+            print("=== INICIANDO CREACIÓN DE RUTA CON MÉTRICAS ===")
             
             try:
                 files = request.files.getlist('gpx_files')
@@ -711,45 +1096,102 @@ def create_app():
                 
                 print(f"Total de puntos originales cargados: {len(original_points)}")
                 
+                # Calcular distancia original
+                original_distance = optimizer.calculate_total_distance(original_points)
+                print(f"Distancia original: {original_distance} metros")
+                
                 # Optimizar ruta
                 print("\n=== OPTIMIZANDO RUTA ===")
                 try:
                     # Intentar optimización normal primero
-                    optimal_path, total_distance = optimizer.optimize_route_advanced(
+                    optimal_path, optimized_distance = optimizer.optimize_route_advanced(
                         uploaded_files, 
                         optimize_level=optimization_level
                     )
+                    optimization_success = True
                 except Exception as e:
                     print(f"Error en optimización avanzada: {e}")
                     print("Intentando optimización rápida...")
                     try:
                         # Usar optimización rápida como respaldo
-                        optimal_path, total_distance = optimizer.optimize_route_quick(
+                        optimal_path, optimized_distance = optimizer.optimize_route_quick(
                             uploaded_files, 
                             optimize_level='basic'
                         )
+                        optimization_level = 'basic'  # Actualizar el nivel usado
+                        optimization_success = True
                     except Exception as e2:
                         print(f"Error en optimización rápida: {e2}")
                         # Como último recurso, usar solo los puntos originales
                         optimal_path = original_points
-                        total_distance = optimizer.calculate_total_distance(original_points)
+                        optimized_distance = original_distance
+                        optimization_level = 'none'
+                        optimization_success = False
                         print("Usando puntos originales sin optimización")
                 
                 print(f"Optimización completada:")
                 print(f"  - Puntos finales: {len(optimal_path)}")
-                print(f"  - Distancia total: {total_distance} metros")
+                print(f"  - Distancia final: {optimized_distance} metros")
+                
+                # Calcular métricas de optimización
+                print("\n=== CALCULANDO MÉTRICAS DE OPTIMIZACIÓN ===")
+                
+                # Calcular ahorro de distancia
+                distance_saved_meters = max(0, original_distance - optimized_distance)
+                distance_saved_km = distance_saved_meters / 1000
+                distance_saved_percent = (distance_saved_meters / original_distance * 100) if original_distance > 0 else 0
+                
+                # Calcular tiempo ahorrado (asumiendo velocidad promedio de 40 km/h)
+                average_speed_kmh = 40
+                time_saved_hours = distance_saved_km / average_speed_kmh
+                time_saved_minutes = int(time_saved_hours * 60)
+                
+                # Detectar bucles eliminados
+                original_loops = optimizer.detect_loops(original_points)
+                optimized_loops = optimizer.detect_loops(optimal_path)
+                loops_removed = max(0, len(original_loops) - len(optimized_loops))
+                
+                # Calcular puntos reducidos
+                points_reduced = max(0, len(original_points) - len(optimal_path))
+                
+                print(f"Métricas calculadas:")
+                print(f"  - Distancia ahorrada: {distance_saved_km:.2f} km ({distance_saved_percent:.1f}%)")
+                print(f"  - Tiempo ahorrado estimado: {time_saved_minutes} minutos")
+                print(f"  - Bucles eliminados: {loops_removed}")
+                print(f"  - Puntos reducidos: {points_reduced}")
                 
                 # Validar optimización
                 print("\n=== VALIDANDO OPTIMIZACIÓN ===")
                 validation_metrics = optimizer.validate_optimization(original_points, optimal_path)
                 
-                print(f"Métricas de optimización:")
+                print(f"Métricas de validación:")
                 for key, value in validation_metrics.items():
                     print(f"  - {key}: {value}")
                 
                 # Crear mapa optimizado
                 print("\n=== CREANDO MAPA ===")
                 route_map = optimizer.create_optimized_map(optimal_path, route_name)
+                
+                # Agregar información de optimización al mapa
+                if optimization_success and distance_saved_km > 0:
+                    optimization_info = f'''
+                    <div style="position: fixed; 
+                                bottom: 10px; left: 10px; width: 300px; 
+                                background-color: rgba(40, 167, 69, 0.9); 
+                                border:2px solid #28a745; z-index:9999; 
+                                font-size:14px; padding: 10px; border-radius: 5px;
+                                box-shadow: 0 0 15px rgba(0,0,0,0.3); color: white;">
+                        <h5 style="margin-top: 0; color: white;">🚀 Optimización Exitosa</h5>
+                        <p><strong>Distancia ahorrada:</strong> {distance_saved_km:.2f} km</p>
+                        <p><strong>Mejora:</strong> {distance_saved_percent:.1f}%</p>
+                        <p><strong>Tiempo ahorrado:</strong> ~{time_saved_minutes} min</p>
+                        <p><strong>Bucles eliminados:</strong> {loops_removed}</p>
+                        <p style="margin-bottom: 0; font-size: 12px; opacity: 0.8;">
+                            Optimización: {optimization_level.capitalize()}
+                        </p>
+                    </div>
+                    '''
+                    route_map.get_root().html.add_child(folium.Element(optimization_info))
                 
                 # Guardar mapa
                 map_filename = f"route_{uuid.uuid4().hex}.html"
@@ -771,7 +1213,7 @@ def create_app():
                     flash('Error al guardar el mapa de la ruta.', 'danger')
                     return redirect(url_for('create_route'))
                 
-                # Crear nueva ruta en base de datos
+                # Crear nueva ruta en base de datos con métricas
                 print("\n=== GUARDANDO EN BASE DE DATOS ===")
                 new_route = Route(
                     name=route_name,
@@ -781,7 +1223,15 @@ def create_app():
                     gpx_path=original_gpx_path,
                     start_point=f"{optimal_path[0][0]},{optimal_path[0][1]}",
                     end_point=f"{optimal_path[-1][0]},{optimal_path[-1][1]}",
-                    distance=total_distance
+                    distance=optimized_distance,
+                    # NUEVOS CAMPOS CON MÉTRICAS
+                    original_distance=original_distance,
+                    distance_saved_km=distance_saved_km,
+                    distance_saved_percent=distance_saved_percent,
+                    estimated_time_saved_minutes=time_saved_minutes,
+                    optimization_level=optimization_level,
+                    loops_removed=loops_removed,
+                    points_reduced=points_reduced
                 )
                 
                 db.session.add(new_route)
@@ -789,12 +1239,15 @@ def create_app():
                 
                 print(f"Ruta guardada en BD con ID: {new_route.id}")
                 
-                # Mensaje de éxito con métricas
-                success_message = f'''Ruta "{route_name}" creada exitosamente. 
-                                    Optimización completada: 
-                                    {validation_metrics['distance_reduction_km']:.2f} km reducidos 
-                                    ({validation_metrics['distance_reduction_percent']:.1f}% de mejora), 
-                                    {validation_metrics['loops_removed']} bucles eliminados.'''
+                # Mensaje de éxito con métricas detalladas
+                if optimization_success and distance_saved_km > 0:
+                    success_message = f'''Ruta "{route_name}" creada y optimizada exitosamente! 
+                                        ✅ {distance_saved_km:.2f} km ahorrados ({distance_saved_percent:.1f}% de mejora)
+                                        ⏱️ ~{time_saved_minutes} minutos de tiempo estimado ahorrado
+                                        🔄 {loops_removed} bucles eliminados
+                                        📊 {points_reduced} puntos de ruta optimizados'''
+                else:
+                    success_message = f'Ruta "{route_name}" creada correctamente (sin optimización aplicada).'
                 
                 print("=== RUTA CREADA EXITOSAMENTE ===")
                 flash(success_message, 'success')
@@ -966,6 +1419,58 @@ def create_app():
         
         flash('Ruta eliminada correctamente.', 'success')
         return redirect(url_for('manage_routes'))
+
+
+
+    @app.route('/route/optimization-details/<int:route_id>')
+    @login_required
+    def view_route_optimization_details(route_id):
+        """Ver detalles de optimización de una ruta específica"""
+        try:
+            route = Route.query.get_or_404(route_id)
+            
+            # Verificar permisos
+            if not (current_user.is_admin or current_user.is_coordinator):
+                flash('No tienes permisos para ver estos detalles.', 'danger')
+                return redirect(url_for('dashboard'))
+            
+            # Calcular métricas adicionales
+            optimization_metrics = {
+                'route': route,
+                'has_optimization_data': route.original_distance is not None,
+                'efficiency_rating': 'Excelente' if (route.distance_saved_percent or 0) > 15 else 
+                                'Buena' if (route.distance_saved_percent or 0) > 5 else 
+                                'Regular' if (route.distance_saved_percent or 0) > 0 else 
+                                'Sin optimización',
+                'estimated_fuel_saved': calculate_fuel_savings(route.distance_saved_km) if route.distance_saved_km else 0,
+                'environmental_impact': calculate_co2_savings(route.distance_saved_km) if route.distance_saved_km else 0
+            }
+            
+            return render_template('optimization_details.html', metrics=optimization_metrics)
+            
+        except Exception as e:
+            print(f"Error en view_route_optimization_details: {e}")
+            flash(f'Error al cargar detalles: {str(e)}', 'danger')
+            return redirect(url_for('manage_routes'))
+
+    def calculate_fuel_savings(km_saved):
+        """Calcular ahorro estimado de combustible"""
+        if not km_saved or km_saved <= 0:
+            return 0
+        # Asumiendo un consumo promedio de 8 litros/100km
+        liters_per_100km = 8
+        return (km_saved * liters_per_100km) / 100
+
+    def calculate_co2_savings(km_saved):
+        """Calcular ahorro estimado de CO2"""
+        if not km_saved or km_saved <= 0:
+            return 0
+        # Asumiendo 2.3 kg CO2 por litro de gasolina
+        fuel_saved = calculate_fuel_savings(km_saved)
+        return fuel_saved * 2.3
+
+
+
 
     # ==================== RUTAS DE TÉCNICO ====================
     
@@ -1279,6 +1784,7 @@ def create_app():
             print(f"ERROR en driver_update_route_progress: {e}")
             return jsonify({'success': False, 'message': f'Error al actualizar progreso: {str(e)}'}), 500
 
+    
     @app.route('/driver/complete_route/<int:completion_id>', methods=['POST'])
     @driver_required
     def driver_complete_route(completion_id):
@@ -1298,6 +1804,7 @@ def create_app():
             if not fuel_end or fuel_end not in [1, 2, 3, 4]:
                 return jsonify({'success': False, 'message': 'Debes seleccionar el nivel final de combustible (1-4)'}), 400
             
+            # Actualizar datos básicos de la completion
             completion.status = 'completed'
             completion.completed_at = datetime.utcnow()
             completion.fuel_end = fuel_end
@@ -1305,6 +1812,33 @@ def create_app():
             
             if notes:
                 completion.notes = notes
+            
+            # NUEVO: Generar el mapa del recorrido completado
+            try:
+                completion_map = generate_completion_map(completion)
+                
+                if completion_map:
+                    # Generar nombre único para el archivo del mapa
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    map_filename = f"completion_{completion.id}_{timestamp}.html"
+                    map_filepath = os.path.join('static', 'completions', map_filename)
+                    
+                    # Asegurar que el directorio existe
+                    os.makedirs(os.path.dirname(map_filepath), exist_ok=True)
+                    
+                    # Guardar el mapa
+                    completion_map.save(map_filepath)
+                    
+                    # Guardar la ruta del mapa en la base de datos
+                    completion.track_map_path = map_filepath
+                    
+                    print(f"Mapa de recorrido guardado: {map_filepath}")
+                else:
+                    print("No se pudo generar el mapa del recorrido")
+                    
+            except Exception as e:
+                print(f"Error generando mapa de recorrido: {e}")
+                # No fallar la completion si no se puede generar el mapa
             
             db.session.commit()
             
@@ -1317,12 +1851,15 @@ def create_app():
             
             return jsonify({
                 'success': True, 
-                'message': f'Ruta completada exitosamente. {consumption_msg}'
+                'message': f'Ruta completada exitosamente. {consumption_msg}',
+                'has_map': completion.track_map_path is not None
             })
             
         except Exception as e:
             print(f"ERROR en driver_complete_route: {e}")
             return jsonify({'success': False, 'message': f'Error al completar ruta: {str(e)}'}), 500
+
+
 
     @app.route('/driver/cancel_route/<int:completion_id>', methods=['POST'])
     @driver_required
@@ -1352,6 +1889,74 @@ def create_app():
         except Exception as e:
             print(f"ERROR en driver_cancel_route: {e}")
             return jsonify({'success': False, 'message': f'Error al cancelar ruta: {str(e)}'}), 500
+        
+
+    @app.route('/view_completion_map/<int:completion_id>')
+    @login_required
+    def view_completion_map(completion_id):
+        """Ver el mapa del recorrido completado"""
+        try:
+            completion = RouteCompletion.query.get_or_404(completion_id)
+            
+            # Verificar permisos
+            if not (current_user.is_admin or current_user.is_coordinator or 
+                    (current_user.is_driver and completion.driver_id == current_user.id)):
+                flash('No tienes permisos para ver este recorrido.', 'danger')
+                return redirect(url_for('dashboard'))
+            
+            # Verificar si existe el mapa
+            if not completion.track_map_path or not os.path.exists(completion.track_map_path):
+                # Intentar generar el mapa si tenemos datos de tracking
+                if completion.track_data:
+                    try:
+                        completion_map = generate_completion_map(completion)
+                        if completion_map:
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            map_filename = f"completion_{completion.id}_{timestamp}.html"
+                            map_filepath = os.path.join('static', 'completions', map_filename)
+                            
+                            os.makedirs(os.path.dirname(map_filepath), exist_ok=True)
+                            completion_map.save(map_filepath)
+                            
+                            completion.track_map_path = map_filepath
+                            db.session.commit()
+                    except Exception as e:
+                        print(f"Error regenerando mapa: {e}")
+                        flash('No se pudo cargar el mapa del recorrido.', 'warning')
+                        return redirect(url_for('dashboard'))
+                else:
+                    flash('No hay datos de recorrido disponibles para esta ruta.', 'warning')
+                    return redirect(url_for('dashboard'))
+            
+            # Cargar el contenido del mapa
+            try:
+                with open(completion.track_map_path, 'r', encoding='utf-8') as f:
+                    map_html = f.read()
+            except Exception as e:
+                print(f"Error cargando archivo de mapa: {e}")
+                map_html = "<p>No se pudo cargar el mapa del recorrido</p>"
+            
+            return render_template('view_completion_map.html',
+                                completion=completion,
+                                map_html=map_html)
+            
+        except Exception as e:
+            print(f"ERROR en view_completion_map: {e}")
+            flash(f'Error al cargar el mapa: {str(e)}', 'danger')
+            return redirect(url_for('dashboard'))
+
+    # ========================================
+    # Función para servir archivos de mapas de recorridos
+    # ========================================
+
+    @app.route('/completions/<path:filename>')
+    def completion_files(filename):
+        """Servir archivos de mapas de recorridos completados"""
+        return send_from_directory('static/completions', filename)
+
+
+
+
     # [Por brevedad, incluyo solo las rutas esenciales aquí]
 
     # ==================== RUTAS PARA REPORTES PDF ====================
@@ -1807,47 +2412,378 @@ def create_app():
                 'type': 'general_error',
                 'message': str(e)
             })
+        
 
-    # También agrega esta función para verificar directorios
-    @app.route('/debug/check_directories')
-    def check_directories():
-        """Verificar que los directorios necesarios existen"""
-        if not app.debug:
-            return jsonify({'error': 'Solo disponible en modo debug'})
-        
-        import os
-        
-        directories_to_check = [
-            app.config['UPLOAD_FOLDER'],
-            'static',
-            'static/routes',
-            'services'
-        ]
-        
-        results = {}
-        
-        for directory in directories_to_check:
-            exists = os.path.exists(directory)
-            is_writable = os.access(directory, os.W_OK) if exists else False
+
+    @app.route('/download_completion_map/<int:completion_id>')
+    @login_required
+    def download_completion_map(completion_id):
+        """Descargar el mapa del recorrido como archivo HTML"""
+        try:
+            completion = RouteCompletion.query.get_or_404(completion_id)
             
-            results[directory] = {
-                'exists': exists,
-                'writable': is_writable,
-                'absolute_path': os.path.abspath(directory)
+            # Verificar permisos
+            if not (current_user.is_admin or current_user.is_coordinator or 
+                    (current_user.is_driver and completion.driver_id == current_user.id)):
+                flash('No tienes permisos para descargar este mapa.', 'danger')
+                return redirect(url_for('dashboard'))
+            
+            if not completion.track_map_path or not os.path.exists(completion.track_map_path):
+                flash('El mapa no está disponible para descarga.', 'warning')
+                return redirect(url_for('dashboard'))
+            
+            # Generar nombre de archivo
+            filename = f"recorrido_{completion.route.name}_{completion.completed_at.strftime('%Y%m%d')}.html"
+            filename = "".join(c for c in filename if c.isalnum() or c in '._-')
+            
+            return send_file(
+                completion.track_map_path,
+                as_attachment=True,
+                download_name=filename,
+                mimetype='text/html'
+            )
+            
+        except Exception as e:
+            print(f"Error descargando mapa: {e}")
+            flash(f'Error al descargar el mapa: {str(e)}', 'danger')
+            return redirect(url_for('dashboard'))
+
+
+
+    @app.route('/api/completion-stats/<int:completion_id>')
+    @login_required
+    def api_completion_stats(completion_id):
+        """API para obtener estadísticas detalladas de un recorrido"""
+        try:
+            completion = RouteCompletion.query.get_or_404(completion_id)
+            
+            # Verificar permisos
+            if not (current_user.is_admin or current_user.is_coordinator or 
+                    (current_user.is_driver and completion.driver_id == current_user.id)):
+                return jsonify({'error': 'Sin permisos'}), 403
+            
+            stats = {
+                'completion_id': completion.id,
+                'route_name': completion.route.name,
+                'driver_name': f"{completion.driver.first_name} {completion.driver.last_name}",
+                'vehicle_info': f"{completion.vehicle.brand} {completion.vehicle.model} ({completion.vehicle.plate_number})",
+                'started_at': completion.started_at.isoformat() if completion.started_at else None,
+                'completed_at': completion.completed_at.isoformat() if completion.completed_at else None,
+                'fuel_start': completion.fuel_start,
+                'fuel_end': completion.fuel_end,
+                'fuel_consumption': completion.fuel_consumption,
+                'notes': completion.notes,
+                'has_map': completion.track_map_path is not None and os.path.exists(completion.track_map_path) if completion.track_map_path else False
             }
             
-            if exists:
+            # Calcular estadísticas del tracking si hay datos
+            if completion.track_data:
                 try:
-                    files = os.listdir(directory)
-                    results[directory]['files_count'] = len(files)
-                    results[directory]['sample_files'] = files[:5]  # Primeros 5 archivos
-                except:
-                    results[directory]['files_count'] = 'No accesible'
+                    track_points = json.loads(completion.track_data)
+                    stats['tracking'] = {
+                        'total_points': len(track_points),
+                        'first_point': track_points[0] if track_points else None,
+                        'last_point': track_points[-1] if track_points else None
+                    }
+                    
+                    # Calcular duración y frecuencia promedio
+                    if completion.started_at and completion.completed_at and len(track_points) > 1:
+                        duration_seconds = (completion.completed_at - completion.started_at).total_seconds()
+                        stats['tracking']['duration_seconds'] = duration_seconds
+                        stats['tracking']['avg_tracking_interval'] = duration_seconds / (len(track_points) - 1)
+                        stats['tracking']['tracking_frequency'] = f"{stats['tracking']['avg_tracking_interval']:.1f} segundos"
+                    
+                except Exception as e:
+                    print(f"Error procesando datos de tracking: {e}")
+                    stats['tracking'] = {'error': 'Error procesando datos de tracking'}
+            
+            # Calcular eficiencia si hay datos de la ruta original
+            if completion.route.distance:
+                stats['route'] = {
+                    'planned_distance_m': completion.route.distance,
+                    'planned_distance_km': completion.route.distance / 1000
+                }
+                
+                # Calcular eficiencia de combustible
+                if completion.fuel_consumption and completion.fuel_consumption > 0:
+                    # Aproximar galones por tanque (esto puede variar según el vehículo)
+                    gallons_per_tank = 10  # Ajustar según tus vehículos
+                    total_gallons = completion.fuel_consumption * gallons_per_tank
+                    km_per_gallon = (completion.route.distance / 1000) / total_gallons
+                    stats['efficiency'] = {
+                        'km_per_gallon': round(km_per_gallon, 2),
+                        'gallons_consumed': total_gallons,
+                        'efficiency_rating': 'Excelente' if km_per_gallon > 15 else 'Buena' if km_per_gallon > 10 else 'Regular'
+                    }
+            
+            return jsonify(stats)
+            
+        except Exception as e:
+            print(f"Error en api_completion_stats: {e}")
+            return jsonify({'error': str(e)}), 500
+
+    # ========================================
+    # RUTA PARA COMPARAR MÚLTIPLES RECORRIDOS
+    # ========================================
+
+    @app.route('/compare_completions')
+    @login_required
+    def compare_completions():
+        """Página para comparar múltiples recorridos"""
+        if not (current_user.is_admin or current_user.is_coordinator):
+            flash('No tienes permisos para acceder a esta función.', 'danger')
+            return redirect(url_for('dashboard'))
         
-        return jsonify({
-            'status': 'success',
-            'directories': results
-        })
+        # Obtener todas las rutas para filtrar
+        routes = Route.query.filter_by(active=True).all()
+        
+        # Obtener recorridos completados con mapas
+        completions = RouteCompletion.query.filter(
+            RouteCompletion.status == 'completed',
+            RouteCompletion.track_data.isnot(None)
+        ).order_by(RouteCompletion.completed_at.desc()).limit(50).all()
+        
+        return render_template('compare_completions.html', 
+                            routes=routes, 
+                            completions=completions)
+
+    # ========================================
+    # MIGRACIÓN DE BASE DE DATOS
+    # ========================================
+
+    @app.route('/admin/migrate_completion_maps')
+    @admin_required
+    def migrate_completion_maps():
+        """Generar mapas para recorridos completados que no los tienen"""
+        try:
+            # Buscar completions sin mapas pero con datos de tracking
+            completions_without_maps = RouteCompletion.query.filter(
+                RouteCompletion.status == 'completed',
+                RouteCompletion.track_data.isnot(None),
+                db.or_(
+                    RouteCompletion.track_map_path.is_(None),
+                    RouteCompletion.track_map_path == ''
+                )
+            ).all()
+            
+            generated_count = 0
+            error_count = 0
+            
+            for completion in completions_without_maps:
+                try:
+                    # Generar mapa
+                    completion_map = generate_completion_map(completion)
+                    
+                    if completion_map:
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        map_filename = f"completion_{completion.id}_{timestamp}.html"
+                        map_filepath = os.path.join('static', 'completions', map_filename)
+                        
+                        os.makedirs(os.path.dirname(map_filepath), exist_ok=True)
+                        completion_map.save(map_filepath)
+                        
+                        completion.track_map_path = map_filepath
+                        generated_count += 1
+                        
+                except Exception as e:
+                    print(f"Error generando mapa para completion {completion.id}: {e}")
+                    error_count += 1
+                    continue
+            
+            db.session.commit()
+            
+            flash(f'Migración completada: {generated_count} mapas generados, {error_count} errores.', 'success')
+            return redirect(url_for('admin_dashboard'))
+            
+        except Exception as e:
+            print(f"Error en migración: {e}")
+            flash(f'Error durante la migración: {str(e)}', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+    # ========================================
+    # LIMPIEZA DE ARCHIVOS HUÉRFANOS
+    # ========================================
+
+    @app.route('/admin/cleanup_completion_maps')
+    @admin_required
+    def cleanup_completion_maps():
+        """Limpiar archivos de mapas que ya no tienen referencias en la BD"""
+        try:
+            import glob
+            
+            # Obtener todos los archivos de mapas de completions
+            completion_files = glob.glob('static/completions/*.html')
+            
+            # Obtener todas las rutas de mapas en la BD
+            db_map_paths = set()
+            completions_with_maps = RouteCompletion.query.filter(
+                RouteCompletion.track_map_path.isnot(None)
+            ).all()
+            
+            for completion in completions_with_maps:
+                if completion.track_map_path:
+                    db_map_paths.add(os.path.abspath(completion.track_map_path))
+            
+            # Encontrar archivos huérfanos
+            orphaned_files = []
+            for file_path in completion_files:
+                abs_file_path = os.path.abspath(file_path)
+                if abs_file_path not in db_map_paths:
+                    orphaned_files.append(file_path)
+            
+            # Eliminar archivos huérfanos
+            deleted_count = 0
+            for file_path in orphaned_files:
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"Error eliminando {file_path}: {e}")
+            
+            flash(f'Limpieza completada: {deleted_count} archivos huérfanos eliminados.', 'success')
+            return redirect(url_for('admin_dashboard'))
+            
+        except Exception as e:
+            print(f"Error en limpieza: {e}")
+            flash(f'Error durante la limpieza: {str(e)}', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+
+
+    @app.route('/admin/migrate_database')
+    @admin_required
+    def migrate_database():
+        """Migrar base de datos agregando columnas de optimización"""
+        try:
+            print("=== INICIANDO MIGRACIÓN ===")
+            
+            # Comandos SQL para agregar las columnas
+            migration_sql = [
+                "ALTER TABLE route ADD COLUMN original_distance REAL",
+                "ALTER TABLE route ADD COLUMN distance_saved_km REAL", 
+                "ALTER TABLE route ADD COLUMN distance_saved_percent REAL",
+                "ALTER TABLE route ADD COLUMN estimated_time_saved_minutes INTEGER",
+                "ALTER TABLE route ADD COLUMN optimization_level TEXT",
+                "ALTER TABLE route ADD COLUMN loops_removed INTEGER",
+                "ALTER TABLE route ADD COLUMN points_reduced INTEGER",
+                "ALTER TABLE route_completion ADD COLUMN track_map_path TEXT"
+            ]
+            
+            success_count = 0
+            already_exists_count = 0
+            errors = []
+            
+            for sql in migration_sql:
+                try:
+                    db.engine.execute(sql)
+                    success_count += 1
+                    print(f"✓ {sql}")
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if "duplicate column" in error_str or "already exists" in error_str:
+                        already_exists_count += 1
+                        print(f"- Ya existe: {sql}")
+                    else:
+                        errors.append(f"{sql}: {str(e)}")
+                        print(f"✗ Error: {sql} - {str(e)}")
+            
+            print(f"=== RESULTADO ===")
+            print(f"Exitosos: {success_count}")
+            print(f"Ya existían: {already_exists_count}")
+            print(f"Errores: {len(errors)}")
+            
+            if success_count > 0:
+                flash(f'Migración exitosa: {success_count} columnas agregadas, {already_exists_count} ya existían', 'success')
+            elif already_exists_count > 0:
+                flash(f'Todas las columnas ya existen ({already_exists_count}). Base de datos actualizada.', 'info')
+            
+            if errors:
+                flash(f'Algunos errores ocurrieron: {"; ".join(errors)}', 'warning')
+            
+            return redirect(url_for('admin_dashboard'))
+            
+        except Exception as e:
+            print(f"Error general en migración: {e}")
+            flash(f'Error en migración: {str(e)}', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+        
+
+    @app.route('/admin/route-optimization/<int:route_id>')  # <- NOMBRE DIFERENTE
+    @login_required
+    def admin_view_route_optimization(route_id):
+        """Ver detalles de optimización de ruta (versión segura)"""
+        try:
+            # Verificar si las columnas de optimización existen
+            inspector = db.inspect(db.engine)
+            columns = [col['name'] for col in inspector.get_columns('route')]
+            
+            if 'distance_saved_km' not in columns:
+                flash('Las métricas de optimización no están disponibles. Ejecuta la migración primero.', 'warning')
+                return redirect(url_for('admin_dashboard'))
+            
+            route = Route.query.get_or_404(route_id)
+            
+            # Verificar permisos
+            if not (current_user.is_admin or current_user.is_coordinator):
+                flash('No tienes permisos para ver estos detalles.', 'danger')
+                return redirect(url_for('dashboard'))
+            
+            # Si no hay datos de optimización, mostrar mensaje
+            if not route.distance_saved_km or route.distance_saved_km <= 0:
+                flash('Esta ruta no tiene datos de optimización disponibles.', 'info')
+                return redirect(url_for('admin_view_route', route_id=route_id))
+            
+            # Calcular métricas adicionales
+            optimization_metrics = {
+                'route': route,
+                'has_optimization_data': True,
+                'efficiency_rating': 'Excelente' if (route.distance_saved_percent or 0) > 15 else 
+                                'Buena' if (route.distance_saved_percent or 0) > 5 else 
+                                'Regular' if (route.distance_saved_percent or 0) > 0 else 
+                                'Sin optimización'
+            }
+            
+            return render_template('optimization_details.html', metrics=optimization_metrics)
+            
+        except Exception as e:
+            print(f"Error en admin_view_route_optimization: {e}")
+            flash(f'Error al cargar detalles: {str(e)}', 'danger')
+            return redirect(url_for('manage_routes'))
+
+    @app.route('/admin/optimization-dashboard-view')  # <- NOMBRE DIFERENTE
+    @admin_required  
+    def admin_optimization_dashboard():
+        """Dashboard de optimización (versión segura)"""
+        try:
+            # Verificar si las columnas existen
+            inspector = db.inspect(db.engine)
+            columns = [col['name'] for col in inspector.get_columns('route')]
+            
+            if 'distance_saved_km' not in columns:
+                flash('Las métricas de optimización no están disponibles. Ejecuta la migración de base de datos primero.', 'warning')
+                return redirect(url_for('admin_dashboard'))
+            
+            # Obtener datos de optimización
+            optimization_summary = get_optimization_summary()
+            
+            # Obtener rutas mejor optimizadas
+            top_routes = Route.query.filter(
+                Route.active == True,
+                Route.distance_saved_percent.isnot(None),
+                Route.distance_saved_percent > 0
+            ).order_by(Route.distance_saved_percent.desc()).limit(5).all()
+            
+            return render_template('admin/optimization_dashboard.html',
+                                optimization_summary=optimization_summary,
+                                top_routes=top_routes)
+            
+        except Exception as e:
+            print(f"Error en admin_optimization_dashboard: {e}")
+            flash(f'Error al cargar dashboard de optimización: {str(e)}', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+
 
 
 
@@ -1866,4 +2802,3 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True, host='0.0.0.0', port=5000)
