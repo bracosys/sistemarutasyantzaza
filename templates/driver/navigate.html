@@ -1396,6 +1396,158 @@
         }
     }
 
+
+
+    // Agregar al final del bloque JavaScript en tu template navigate.html
+
+    // Debug de carga del mapa
+    $(document).ready(function () {
+        console.log('=== NAVIGATION DEBUG ===');
+        console.log('Route ID:', '{{ route.id }}');
+        console.log('Route name:', '{{ route.name }}');
+        console.log('Completion ID:', '{{ completion.id }}');
+
+        // Verificar si el mapa se cargó
+        const mapContainer = $('.card-body:contains("map_html")').length > 0;
+        console.log('Map container found:', mapContainer);
+
+        // Verificar el contenido del mapa
+        const mapContent = $('body').html();
+        const hasLeafletMap = mapContent.includes('leaflet') || mapContent.includes('L.map');
+        const hasFoliumMap = mapContent.includes('folium') || mapContent.includes('openstreetmap');
+
+        console.log('Has Leaflet map:', hasLeafletMap);
+        console.log('Has Folium map:', hasFoliumMap);
+
+        // Buscar elementos de mapa
+        const mapDivs = $('div[id*="map"]');
+        console.log('Map divs found:', mapDivs.length);
+
+        if (mapDivs.length > 0) {
+            mapDivs.each(function (index, element) {
+                console.log(`Map div ${index}:`, element.id, 'HTML length:', element.innerHTML.length);
+            });
+        }
+
+        // Verificar errores en el contenido
+        const hasMapError = mapContent.includes('No se pudo cargar') || mapContent.includes('Error');
+        console.log('Has map error:', hasMapError);
+
+        if (!hasFoliumMap && !hasLeafletMap) {
+            console.warn('⚠️ NO MAP DETECTED - Possible issues:');
+            console.warn('1. Route file_path not found');
+            console.warn('2. Map file corrupted or empty');
+            console.warn('3. Backend error loading map');
+
+            // Mostrar alerta al usuario
+            showAlert('No se pudo cargar el mapa de la ruta. Verifique con el administrador.', 'warning');
+        } else {
+            console.log('✅ Map loaded successfully');
+        }
+
+        console.log('========================');
+    });
+
+    // Función mejorada para mostrar alertas
+    function showAlert(message, type = 'info', persistent = false) {
+        // Colores según el tipo
+        const colors = {
+            success: 'alert-success',
+            info: 'alert-info',
+            warning: 'alert-warning',
+            error: 'alert-danger',
+            danger: 'alert-danger'
+        };
+
+        const iconMap = {
+            success: 'fas fa-check-circle',
+            info: 'fas fa-info-circle',
+            warning: 'fas fa-exclamation-triangle',
+            error: 'fas fa-exclamation-circle',
+            danger: 'fas fa-exclamation-circle'
+        };
+
+        // Crear alerta
+        const alertHtml = `
+        <div class="alert ${colors[type]} alert-dismissible fade show" role="alert" style="position: fixed; top: 20px; right: 20px; z-index: 9999; max-width: 400px;">
+            <i class="${iconMap[type]} me-2"></i>
+            ${message}
+            ${!persistent ? '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' : ''}
+        </div>
+    `;
+
+        // Agregar al body
+        $('body').append(alertHtml);
+
+        // Auto-remover después de 5 segundos si no es persistente
+        if (!persistent) {
+            setTimeout(() => {
+                $('.alert').last().fadeOut(() => {
+                    $('.alert').last().remove();
+                });
+            }, 5000);
+        }
+    }
+
+    // Función mejorada de request con mejor debugging
+    function makeRequest(url, data, successCallback, errorCallback) {
+        console.log('Making request to:', url);
+        console.log('Request data:', data);
+
+        $.ajax({
+            url: url,
+            method: 'POST',
+            data: JSON.stringify(data),
+            contentType: 'application/json',
+            timeout: 15000,
+            beforeSend: function (xhr) {
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            },
+            success: function (response) {
+                console.log('Request successful:', response);
+                if (typeof successCallback === 'function') {
+                    successCallback(response);
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('Request failed:', {
+                    url: url,
+                    status: xhr.status,
+                    statusText: xhr.statusText,
+                    error: error,
+                    responseText: xhr.responseText
+                });
+
+                let errorMessage = 'Error de conexión';
+
+                if (xhr.status === 0) {
+                    errorMessage = 'Sin conexión a internet';
+                } else if (xhr.status === 404) {
+                    errorMessage = 'Recurso no encontrado (404)';
+                } else if (xhr.status === 500) {
+                    errorMessage = 'Error interno del servidor (500)';
+                } else if (status === 'timeout') {
+                    errorMessage = 'Tiempo de espera agotado';
+                } else {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || response.message || errorMessage;
+                    } catch (e) {
+                        errorMessage = `Error ${xhr.status}: ${xhr.statusText}`;
+                    }
+                }
+
+                if (typeof errorCallback === 'function') {
+                    errorCallback(errorMessage);
+                } else {
+                    showAlert(errorMessage, 'error');
+                }
+            }
+        });
+    }
+
+
+
     // Limpiar recursos al salir
     window.addEventListener('beforeunload', function () {
         if (gpsActive) {
