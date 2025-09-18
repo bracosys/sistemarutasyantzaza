@@ -720,7 +720,6 @@ def get_optimization_summary():
         }
 
 # ==================== CREACIÓN DE LA APLICACIÓN ====================
-
 def create_app():
     app = Flask(__name__)
     
@@ -729,19 +728,17 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['UPLOAD_FOLDER'] = './uploads'
     
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    os.makedirs('static/routes', exist_ok=True)
-    
     db.init_app(app)
     login_manager.init_app(app)
     login_manager.login_view = 'login'
     login_manager.login_message = 'Por favor inicia sesión para acceder a esta página'
     
+    # Crear directorios necesarios
+    ensure_app_directories()
+    
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
-
-
 
     @app.context_processor
     def inject_global_data():
@@ -750,8 +747,6 @@ def create_app():
             'get_recent_completions': get_recent_completions
         }
 
-
-    
     # Filtros de template
     @app.template_filter('datetime_format')
     def datetime_format(value, format='%d/%m/%Y %H:%M'):
@@ -790,7 +785,6 @@ def create_app():
         except:
             return []
 
-
     @app.template_filter('format_distance_saved')
     def format_distance_saved(km_value):
         """Formatear kilómetros ahorrados"""
@@ -809,19 +803,6 @@ def create_app():
             hours = minutes // 60
             remaining_minutes = minutes % 60
             return f"~{hours}h {remaining_minutes}m ahorrados"
-
-    @app.template_filter('format_optimization_level')
-    def format_optimization_level(level):
-        """Formatear nivel de optimización"""
-        levels = {
-            'basic': 'Básica',
-            'medium': 'Media', 
-            'advanced': 'Avanzada',
-            'none': 'Sin optimización'
-        }
-        return levels.get(level, level.capitalize() if level else 'No especificado')
-
-
 
     @app.template_filter('format_optimization_level')
     def format_optimization_level(level):
@@ -921,20 +902,18 @@ def create_app():
         in_progress_routes = RouteCompletion.query.filter_by(status='in_progress').count()
         
         return render_template(
-        'admin/dashboard.html',
-        total_users=total_users,
-        total_drivers=total_drivers,
-        total_vehicles=total_vehicles, 
-        total_routes=total_routes,
-        recent_routes=recent_routes,
-        completed_routes=completed_routes,
-        in_progress_routes=in_progress_routes,
-        get_optimized_routes_count=get_optimized_routes_count,
-        get_optimization_summary=get_optimization_summary,
-)
+            'admin/dashboard.html',
+            total_users=total_users,
+            total_drivers=total_drivers,
+            total_vehicles=total_vehicles, 
+            total_routes=total_routes,
+            recent_routes=recent_routes,
+            completed_routes=completed_routes,
+            in_progress_routes=in_progress_routes,
+            get_optimized_routes_count=get_optimized_routes_count,
+            get_optimization_summary=get_optimization_summary,
+        )
 
-
-    # [Continúa con todas las rutas del administrador...]
     @app.route('/admin/users')
     @admin_required
     def manage_users():
@@ -997,12 +976,6 @@ def create_app():
     def manage_routes():
         routes = Route.query.filter_by(active=True).order_by(Route.created_at.desc()).all()
         return render_template('admin/routes.html', routes=routes)
-
-    
-
-    # Reemplaza tu función create_route en app.py con esta versión mejorada:
-
-    # Reemplaza tu función create_route en app.py con esta versión mejorada:
 
     @app.route('/admin/create_route', methods=['GET', 'POST'])
     @admin_required
@@ -1160,71 +1133,111 @@ def create_app():
                 print(f"  - Bucles eliminados: {loops_removed}")
                 print(f"  - Puntos reducidos: {points_reduced}")
                 
-                # Validar optimización
-                print("\n=== VALIDANDO OPTIMIZACIÓN ===")
-                validation_metrics = optimizer.validate_optimization(original_points, optimal_path)
-                
-                print(f"Métricas de validación:")
-                for key, value in validation_metrics.items():
-                    print(f"  - {key}: {value}")
-                
                 # Crear mapa optimizado
                 print("\n=== CREANDO MAPA ===")
                 route_map = optimizer.create_optimized_map(optimal_path, route_name)
-                
-                # Agregar información de optimización al mapa
-                if optimization_success and distance_saved_km > 0:
-                    optimization_info = f'''
-                    <div style="position: fixed; 
-                                bottom: 10px; left: 10px; width: 300px; 
-                                background-color: rgba(40, 167, 69, 0.9); 
-                                border:2px solid #28a745; z-index:9999; 
-                                font-size:14px; padding: 10px; border-radius: 5px;
-                                box-shadow: 0 0 15px rgba(0,0,0,0.3); color: white;">
-                        <h5 style="margin-top: 0; color: white;">🚀 Optimización Exitosa</h5>
-                        <p><strong>Distancia ahorrada:</strong> {distance_saved_km:.2f} km</p>
-                        <p><strong>Mejora:</strong> {distance_saved_percent:.1f}%</p>
-                        <p><strong>Tiempo ahorrado:</strong> ~{time_saved_minutes} min</p>
-                        <p><strong>Bucles eliminados:</strong> {loops_removed}</p>
-                        <p style="margin-bottom: 0; font-size: 12px; opacity: 0.8;">
-                            Optimización: {optimization_level.capitalize()}
-                        </p>
-                    </div>
-                    '''
-                    route_map.get_root().html.add_child(folium.Element(optimization_info))
-                
-                # Guardar mapa
-                map_filename = f"route_{uuid.uuid4().hex}.html"
-                map_filepath = os.path.join('static', 'routes', map_filename)
-                
-                print(f"Guardando mapa en: {map_filepath}")
-                
-                # Asegurar que el directorio existe
-                os.makedirs(os.path.dirname(map_filepath), exist_ok=True)
-                
-                route_map.save(map_filepath)
-                
-                # Verificar que el mapa se guardó
-                if os.path.exists(map_filepath):
-                    map_size = os.path.getsize(map_filepath)
-                    print(f"Mapa guardado exitosamente, tamaño: {map_size} bytes")
-                else:
-                    print("ERROR: No se pudo guardar el mapa")
-                    flash('Error al guardar el mapa de la ruta.', 'danger')
-                    return redirect(url_for('create_route'))
-                
-                # Crear nueva ruta en base de datos con métricas
+
+                # Generar nombre de archivo ÚNICO y VERIFICADO
+                max_attempts = 5
+                map_filepath = None
+                map_filename = None
+
+                for attempt in range(max_attempts):
+                    try:
+                        # Generar nombre único con timestamp + UUID
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        unique_id = uuid.uuid4().hex[:8]
+                        map_filename = f"route_{route_name.replace(' ', '_')}_{timestamp}_{unique_id}.html"
+                        
+                        # Limpiar caracteres especiales del nombre
+                        map_filename = "".join(c for c in map_filename if c.isalnum() or c in '._-')
+                        
+                        # Generar ruta completa
+                        map_filepath = os.path.join('static', 'routes', map_filename)
+                        
+                        # Verificar que el directorio existe
+                        os.makedirs(os.path.dirname(map_filepath), exist_ok=True)
+                        
+                        # Verificar que el archivo no existe ya
+                        if not os.path.exists(map_filepath):
+                            break
+                        else:
+                            print(f"Archivo ya existe, intentando otro nombre (intento {attempt + 1})")
+                            map_filepath = None
+                            
+                    except Exception as e:
+                        print(f"Error generando nombre de archivo (intento {attempt + 1}): {e}")
+                        map_filepath = None
+
+                if not map_filepath:
+                    raise Exception("No se pudo generar un nombre de archivo único después de varios intentos")
+
+                print(f"Nombre de archivo generado: {map_filename}")
+                print(f"Ruta completa: {map_filepath}")
+
+                # Guardar mapa con verificaciones
+                try:
+                    print("Guardando mapa...")
+                    route_map.save(map_filepath)
+                    
+                    # VERIFICAR QUE EL ARCHIVO SE GUARDÓ CORRECTAMENTE
+                    if not os.path.exists(map_filepath):
+                        raise Exception(f"El archivo no se creó: {map_filepath}")
+                    
+                    file_size = os.path.getsize(map_filepath)
+                    if file_size < 1000:  # Archivo muy pequeño, probablemente corrupto
+                        raise Exception(f"Archivo demasiado pequeño ({file_size} bytes), posiblemente corrupto")
+                    
+                    print(f"Mapa guardado exitosamente:")
+                    print(f"  - Archivo: {map_filepath}")
+                    print(f"  - Tamaño: {file_size} bytes")
+                    
+                    # VERIFICAR CONTENIDO DEL ARCHIVO
+                    with open(map_filepath, 'r', encoding='utf-8') as f:
+                        content_preview = f.read(100)
+                        if '<html' not in content_preview.lower():
+                            print("ADVERTENCIA: El archivo no parece ser HTML válido")
+                        else:
+                            print("  - Contenido: HTML válido detectado")
+                    
+                except Exception as e:
+                    print(f"ERROR guardando mapa: {e}")
+                    
+                    # Intentar crear un mapa básico de respaldo
+                    try:
+                        print("Creando mapa básico de respaldo...")
+                        basic_map_content = create_basic_fallback_map_html(optimal_path, route_name)
+                        
+                        with open(map_filepath, 'w', encoding='utf-8') as f:
+                            f.write(basic_map_content)
+                        
+                        print(f"Mapa básico creado como respaldo")
+                        
+                    except Exception as e2:
+                        print(f"ERROR creando mapa básico: {e2}")
+                        raise Exception(f"No se pudo crear el mapa: {e}. Respaldo falló: {e2}")
+
+                # Crear nueva ruta en base de datos con VERIFICACIONES
                 print("\n=== GUARDANDO EN BASE DE DATOS ===")
+
+                # VERIFICAR UNA VEZ MÁS que los archivos existen antes de guardar en BD
+                if not os.path.exists(map_filepath):
+                    raise Exception(f"CRÍTICO: Archivo de mapa desapareció antes de guardar en BD: {map_filepath}")
+
+                if original_gpx_path and not os.path.exists(original_gpx_path):
+                    print(f"ADVERTENCIA: Archivo GPX no existe: {original_gpx_path}")
+                    original_gpx_path = None
+
                 new_route = Route(
                     name=route_name,
                     description=route_description,
                     creator_id=current_user.id,
-                    file_path=map_filepath,
-                    gpx_path=original_gpx_path,
+                    file_path=map_filepath,  # Ruta VERIFICADA
+                    gpx_path=original_gpx_path,  # Puede ser None si no existe
                     start_point=f"{optimal_path[0][0]},{optimal_path[0][1]}",
                     end_point=f"{optimal_path[-1][0]},{optimal_path[-1][1]}",
                     distance=optimized_distance,
-                    # NUEVOS CAMPOS CON MÉTRICAS
+                    # Métricas de optimización
                     original_distance=original_distance,
                     distance_saved_km=distance_saved_km,
                     distance_saved_percent=distance_saved_percent,
@@ -1233,12 +1246,34 @@ def create_app():
                     loops_removed=loops_removed,
                     points_reduced=points_reduced
                 )
-                
-                db.session.add(new_route)
-                db.session.commit()
-                
-                print(f"Ruta guardada en BD con ID: {new_route.id}")
-                
+
+                try:
+                    db.session.add(new_route)
+                    db.session.commit()
+                    
+                    print(f"Ruta guardada en BD con ID: {new_route.id}")
+                    
+                    # VERIFICACIÓN FINAL POST-COMMIT
+                    final_check = os.path.exists(map_filepath)
+                    print(f"Verificación final - archivo existe: {final_check}")
+                    
+                    if not final_check:
+                        print("ALERTA: El archivo desapareció después del commit!")
+                    
+                except Exception as e:
+                    print(f"ERROR guardando en BD: {e}")
+                    db.session.rollback()
+                    
+                    # Limpiar archivo si falló la BD
+                    if os.path.exists(map_filepath):
+                        try:
+                            os.remove(map_filepath)
+                            print(f"Archivo limpiado después de error en BD")
+                        except:
+                            pass
+                    
+                    raise
+
                 # Mensaje de éxito con métricas detalladas
                 if optimization_success and distance_saved_km > 0:
                     success_message = f'''Ruta "{route_name}" creada y optimizada exitosamente! 
@@ -1265,38 +1300,11 @@ def create_app():
         
         return render_template('admin/create_route.html')
 
-
-
-
     @app.route('/admin/vehicles')
     @admin_required
     def manage_vehicles():
         vehicles = Vehicle.query.filter_by(active=True).order_by(Vehicle.brand).all()
         return render_template('admin/vehicles.html', vehicles=vehicles)
-
-    @app.route('/admin/view_vehicle/<int:vehicle_id>')
-    @admin_required
-    def admin_view_vehicle(vehicle_id):
-        vehicle = Vehicle.query.get_or_404(vehicle_id)
-        
-        # Obtener asignaciones del vehículo
-        assignments = VehicleAssignment.query.filter_by(vehicle_id=vehicle_id).order_by(VehicleAssignment.assigned_at.desc()).all()
-        
-        # Obtener completados de rutas con este vehículo
-        route_completions = RouteCompletion.query.filter_by(vehicle_id=vehicle_id).order_by(RouteCompletion.completed_at.desc()).all()
-        
-        # Estadísticas del vehículo
-        total_routes = len(route_completions)
-        completed_routes = len([rc for rc in route_completions if rc.status == 'completed'])
-        total_distance = sum([rc.route.distance or 0 for rc in route_completions if rc.status == 'completed'])
-        
-        return render_template('admin/view_vehicle.html', 
-                             vehicle=vehicle,
-                             assignments=assignments,
-                             route_completions=route_completions,
-                             total_routes=total_routes,
-                             completed_routes=completed_routes,
-                             total_distance=total_distance)
 
     @app.route('/admin/add_vehicle', methods=['GET', 'POST'])
     @admin_required
@@ -1360,23 +1368,6 @@ def create_app():
             flash(f'Error al editar el vehículo: {str(e)}', 'danger')
             return redirect(url_for('manage_vehicles'))
 
-    @app.route('/admin/toggle_vehicle/<int:vehicle_id>', methods=['POST'])
-    @admin_required
-    def toggle_vehicle_status(vehicle_id):
-        try:
-            vehicle = Vehicle.query.get_or_404(vehicle_id)
-            vehicle.active = not vehicle.active
-            db.session.commit()
-            
-            status = 'activado' if vehicle.active else 'desactivado'
-            flash(f'Vehículo {status} correctamente.', 'success')
-            return redirect(url_for('manage_vehicles'))
-            
-        except Exception as e:
-            print(f"ERROR en toggle_vehicle_status: {e}")
-            flash(f'Error al cambiar estado del vehículo: {str(e)}', 'danger')
-            return redirect(url_for('manage_vehicles'))
-
     @app.route('/admin/view_route/<int:route_id>')
     @admin_required
     def admin_view_route(route_id):
@@ -1422,54 +1413,430 @@ def create_app():
 
 
 
-    @app.route('/route/optimization-details/<int:route_id>')
-    @login_required
-    def view_route_optimization_details(route_id):
-        """Ver detalles de optimización de una ruta específica"""
+    @app.route('/admin/repair_broken_routes')
+    @admin_required
+    def repair_broken_routes():
+        """Reparar rutas con archivos de mapa faltantes"""
         try:
-            route = Route.query.get_or_404(route_id)
+            print("=== INICIANDO REPARACIÓN DE RUTAS ===")
             
-            # Verificar permisos
-            if not (current_user.is_admin or current_user.is_coordinator):
-                flash('No tienes permisos para ver estos detalles.', 'danger')
-                return redirect(url_for('dashboard'))
+            # Obtener todas las rutas activas
+            routes = Route.query.filter_by(active=True).all()
             
-            # Calcular métricas adicionales
-            optimization_metrics = {
-                'route': route,
-                'has_optimization_data': route.original_distance is not None,
-                'efficiency_rating': 'Excelente' if (route.distance_saved_percent or 0) > 15 else 
-                                'Buena' if (route.distance_saved_percent or 0) > 5 else 
-                                'Regular' if (route.distance_saved_percent or 0) > 0 else 
-                                'Sin optimización',
-                'estimated_fuel_saved': calculate_fuel_savings(route.distance_saved_km) if route.distance_saved_km else 0,
-                'environmental_impact': calculate_co2_savings(route.distance_saved_km) if route.distance_saved_km else 0
-            }
+            repaired_count = 0
+            error_count = 0
             
-            return render_template('optimization_details.html', metrics=optimization_metrics)
+            for route in routes:
+                try:
+                    print(f"\nProcesando ruta: {route.name} (ID: {route.id})")
+                    
+                    # Verificar si el archivo del mapa existe
+                    map_file_missing = not route.file_path or not os.path.exists(route.file_path)
+                    
+                    if map_file_missing:
+                        print(f"  - Archivo de mapa faltante: {route.file_path}")
+                        
+                        # Intentar reparar desde GPX
+                        if route.gpx_path and os.path.exists(route.gpx_path):
+                            print(f"  - Intentando reparar desde GPX: {route.gpx_path}")
+                            
+                            # Cargar puntos del GPX
+                            optimizer = AdvancedRouteOptimizer()
+                            points = optimizer.load_gpx_points(route.gpx_path)
+                            
+                            if points:
+                                # Crear nuevo mapa
+                                route_map = optimizer.create_optimized_map(points, route.name)
+                                
+                                # Generar nuevo nombre de archivo
+                                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                new_filename = f"route_{route.id}_{timestamp}.html"
+                                new_filepath = os.path.join('static', 'routes', new_filename)
+                                
+                                # Asegurar que el directorio existe
+                                os.makedirs(os.path.dirname(new_filepath), exist_ok=True)
+                                
+                                # Guardar mapa
+                                route_map.save(new_filepath)
+                                
+                                # Actualizar base de datos
+                                route.file_path = new_filepath
+                                
+                                print(f"  ✓ Mapa reparado: {new_filepath}")
+                                repaired_count += 1
+                                
+                            else:
+                                print(f"  ✗ No se pudieron cargar puntos del GPX")
+                                error_count += 1
+                        else:
+                            print(f"  ✗ No hay archivo GPX disponible: {route.gpx_path}")
+                            error_count += 1
+                    else:
+                        print(f"  ✓ Mapa OK: {route.file_path}")
+                        
+                except Exception as e:
+                    print(f"  ✗ Error procesando ruta {route.id}: {e}")
+                    error_count += 1
+                    continue
+            
+            # Commit cambios
+            db.session.commit()
+            
+            flash(f'Reparación completada: {repaired_count} rutas reparadas, {error_count} errores', 'success')
+            
+            print(f"\n=== REPARACIÓN COMPLETADA ===")
+            print(f"Rutas reparadas: {repaired_count}")
+            print(f"Errores: {error_count}")
+            
+            return redirect(url_for('admin_dashboard'))
             
         except Exception as e:
-            print(f"Error en view_route_optimization_details: {e}")
-            flash(f'Error al cargar detalles: {str(e)}', 'danger')
-            return redirect(url_for('manage_routes'))
-
-    def calculate_fuel_savings(km_saved):
-        """Calcular ahorro estimado de combustible"""
-        if not km_saved or km_saved <= 0:
-            return 0
-        # Asumiendo un consumo promedio de 8 litros/100km
-        liters_per_100km = 8
-        return (km_saved * liters_per_100km) / 100
-
-    def calculate_co2_savings(km_saved):
-        """Calcular ahorro estimado de CO2"""
-        if not km_saved or km_saved <= 0:
-            return 0
-        # Asumiendo 2.3 kg CO2 por litro de gasolina
-        fuel_saved = calculate_fuel_savings(km_saved)
-        return fuel_saved * 2.3
+            print(f"Error en reparación: {e}")
+            flash(f'Error durante la reparación: {str(e)}', 'danger')
+            return redirect(url_for('admin_dashboard'))
 
 
+    @app.route('/admin/clean_broken_files')
+    @admin_required  
+    def clean_broken_files():
+        """Limpiar referencias a archivos que no existen"""
+        try:
+            print("=== LIMPIANDO REFERENCIAS ROTAS ===")
+            
+            routes = Route.query.filter_by(active=True).all()
+            cleaned_count = 0
+            
+            for route in routes:
+                updated = False
+                
+                # Limpiar file_path si no existe
+                if route.file_path and not os.path.exists(route.file_path):
+                    print(f"Limpiando file_path roto: {route.file_path}")
+                    route.file_path = None
+                    updated = True
+                
+                # Limpiar gpx_path si no existe  
+                if route.gpx_path and not os.path.exists(route.gpx_path):
+                    print(f"Limpiando gpx_path roto: {route.gpx_path}")
+                    route.gpx_path = None
+                    updated = True
+                
+                if updated:
+                    cleaned_count += 1
+            
+            db.session.commit()
+            
+            flash(f'Limpieza completada: {cleaned_count} rutas actualizadas', 'success')
+            return redirect(url_for('admin_dashboard'))
+            
+        except Exception as e:
+            flash(f'Error en limpieza: {str(e)}', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+
+
+
+    @app.route('/admin/ensure_directories')
+    @admin_required
+    def ensure_directories():
+        """Crear directorios necesarios si no existen"""
+        try:
+            directories = [
+                'static/routes',
+                'static/completions',
+                'uploads',
+                'temp'
+            ]
+            
+            created_dirs = []
+            existing_dirs = []
+            
+            for directory in directories:
+                abs_path = os.path.abspath(directory)
+                
+                if os.path.exists(abs_path):
+                    existing_dirs.append(directory)
+                else:
+                    os.makedirs(abs_path, exist_ok=True)
+                    created_dirs.append(directory)
+            
+            # Verificar permisos de escritura
+            permission_issues = []
+            for directory in directories:
+                abs_path = os.path.abspath(directory)
+                if not os.access(abs_path, os.W_OK):
+                    permission_issues.append(directory)
+            
+            if permission_issues:
+                flash(f'Directorios sin permisos de escritura: {", ".join(permission_issues)}', 'warning')
+            
+            if created_dirs:
+                flash(f'Directorios creados: {", ".join(created_dirs)}', 'success')
+            
+            if not created_dirs and not permission_issues:
+                flash('Todos los directorios ya existen y tienen permisos correctos', 'info')
+            
+            return redirect(url_for('admin_dashboard'))
+            
+        except Exception as e:
+            flash(f'Error creando directorios: {str(e)}', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+    @app.route('/admin/diagnose_system')
+    @admin_required
+    def diagnose_system():
+        """Diagnóstico completo del sistema de rutas"""
+        try:
+            diagnosis = {
+                'timestamp': datetime.now().isoformat(),
+                'directories': {},
+                'routes': {},
+                'files': {},
+                'database': {},
+                'permissions': {},
+                'recommendations': []
+            }
+            
+            print("=== INICIANDO DIAGNÓSTICO COMPLETO ===")
+            
+            # 1. VERIFICAR DIRECTORIOS
+            print("1. Verificando directorios...")
+            directories = ['static', 'static/routes', 'static/completions', 'uploads', 'temp']
+            
+            for directory in directories:
+                abs_path = os.path.abspath(directory)
+                diagnosis['directories'][directory] = {
+                    'exists': os.path.exists(abs_path),
+                    'writable': os.access(abs_path, os.W_OK) if os.path.exists(abs_path) else False,
+                    'absolute_path': abs_path
+                }
+                
+                if not os.path.exists(abs_path):
+                    diagnosis['recommendations'].append(f"Crear directorio faltante: {directory}")
+                elif not os.access(abs_path, os.W_OK):
+                    diagnosis['recommendations'].append(f"Corregir permisos de escritura en: {directory}")
+            
+            # 2. VERIFICAR BASE DE DATOS
+            print("2. Verificando base de datos...")
+            total_routes = Route.query.count()
+            active_routes = Route.query.filter_by(active=True).count()
+            routes_with_files = Route.query.filter(Route.file_path.isnot(None)).count()
+            routes_with_gpx = Route.query.filter(Route.gpx_path.isnot(None)).count()
+            
+            diagnosis['database'] = {
+                'total_routes': total_routes,
+                'active_routes': active_routes,
+                'routes_with_file_path': routes_with_files,
+                'routes_with_gpx_path': routes_with_gpx
+            }
+            
+            # 3. VERIFICAR ARCHIVOS DE RUTAS
+            print("3. Verificando archivos de rutas...")
+            routes = Route.query.filter_by(active=True).all()
+            
+            file_issues = []
+            valid_files = 0
+            missing_files = 0
+            corrupted_files = 0
+            
+            for route in routes:
+                route_status = {
+                    'id': route.id,
+                    'name': route.name,
+                    'file_path': route.file_path,
+                    'gpx_path': route.gpx_path,
+                    'file_exists': False,
+                    'file_valid': False,
+                    'gpx_exists': False,
+                    'issues': []
+                }
+                
+                # Verificar file_path
+                if route.file_path:
+                    if os.path.exists(route.file_path):
+                        route_status['file_exists'] = True
+                        
+                        try:
+                            # Verificar contenido del archivo
+                            with open(route.file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                
+                            if len(content) > 500 and '<html' in content.lower():
+                                route_status['file_valid'] = True
+                                valid_files += 1
+                            else:
+                                route_status['issues'].append('Archivo HTML inválido o vacío')
+                                corrupted_files += 1
+                                
+                        except Exception as e:
+                            route_status['issues'].append(f'Error leyendo archivo: {e}')
+                            corrupted_files += 1
+                    else:
+                        route_status['issues'].append('Archivo de mapa no existe')
+                        missing_files += 1
+                else:
+                    route_status['issues'].append('Sin file_path definido')
+                
+                # Verificar gpx_path
+                if route.gpx_path:
+                    route_status['gpx_exists'] = os.path.exists(route.gpx_path)
+                    if not route_status['gpx_exists']:
+                        route_status['issues'].append('Archivo GPX no existe')
+                
+                if route_status['issues']:
+                    file_issues.append(route_status)
+            
+            diagnosis['files'] = {
+                'total_checked': len(routes),
+                'valid_files': valid_files,
+                'missing_files': missing_files,
+                'corrupted_files': corrupted_files,
+                'issues': file_issues
+            }
+            
+            # 4. VERIFICAR PERMISOS
+            print("4. Verificando permisos...")
+            test_paths = ['static/routes', 'uploads']
+            
+            for path in test_paths:
+                try:
+                    test_file = os.path.join(path, 'test_write.tmp')
+                    with open(test_file, 'w') as f:
+                        f.write('test')
+                    os.remove(test_file)
+                    diagnosis['permissions'][path] = 'OK'
+                except Exception as e:
+                    diagnosis['permissions'][path] = f'ERROR: {e}'
+                    diagnosis['recommendations'].append(f"Corregir permisos de escritura en {path}")
+            
+            # 5. VERIFICAR SERVICIOS
+            print("5. Verificando servicios...")
+            services_status = {}
+            
+            try:
+                optimizer = AdvancedRouteOptimizer()
+                services_status['route_optimizer'] = 'OK'
+            except Exception as e:
+                services_status['route_optimizer'] = f'ERROR: {e}'
+                diagnosis['recommendations'].append("Revisar importación de AdvancedRouteOptimizer")
+            
+            try:
+                import folium
+                services_status['folium'] = 'OK'
+            except Exception as e:
+                services_status['folium'] = f'ERROR: {e}'
+                diagnosis['recommendations'].append("Instalar o reparar biblioteca Folium")
+            
+            diagnosis['services'] = services_status
+            
+            # 6. GENERAR RECOMENDACIONES FINALES
+            if missing_files > 0:
+                diagnosis['recommendations'].append(f"Ejecutar reparación de {missing_files} rutas con archivos faltantes")
+            
+            if corrupted_files > 0:
+                diagnosis['recommendations'].append(f"Regenerar {corrupted_files} archivos corruptos")
+            
+            if len(diagnosis['recommendations']) == 0:
+                diagnosis['recommendations'].append("Sistema en estado saludable - no se requieren acciones")
+            
+            print("=== DIAGNÓSTICO COMPLETADO ===")
+            
+            return jsonify(diagnosis)
+            
+        except Exception as e:
+            print(f"Error en diagnóstico: {e}")
+            return jsonify({'error': str(e)})
+
+    @app.route('/admin/fix_all_issues')
+    @admin_required
+    def fix_all_issues():
+        """Intentar reparar automáticamente todos los problemas detectados"""
+        try:
+            print("=== INICIANDO REPARACIÓN AUTOMÁTICA ===")
+            
+            results = {
+                'directories_created': [],
+                'routes_repaired': [],
+                'files_cleaned': [],
+                'errors': []
+            }
+            
+            # 1. Crear directorios faltantes
+            directories = ['static/routes', 'static/completions', 'uploads', 'temp']
+            for directory in directories:
+                try:
+                    if not os.path.exists(directory):
+                        os.makedirs(directory, exist_ok=True)
+                        results['directories_created'].append(directory)
+                except Exception as e:
+                    results['errors'].append(f"Error creando {directory}: {e}")
+            
+            # 2. Reparar rutas con archivos faltantes
+            routes = Route.query.filter_by(active=True).all()
+            
+            for route in routes:
+                try:
+                    needs_repair = False
+                    
+                    # Verificar si necesita reparación
+                    if not route.file_path or not os.path.exists(route.file_path):
+                        needs_repair = True
+                    
+                    if needs_repair and route.gpx_path and os.path.exists(route.gpx_path):
+                        # Intentar reparar
+                        optimizer = AdvancedRouteOptimizer()
+                        points = optimizer.load_gpx_points(route.gpx_path)
+                        
+                        if points:
+                            # Crear nuevo mapa
+                            route_map = optimizer.create_optimized_map(points, route.name)
+                            
+                            # Generar nuevo archivo
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            filename = f"route_{route.id}_repaired_{timestamp}.html"
+                            filepath = os.path.join('static', 'routes', filename)
+                            
+                            route_map.save(filepath)
+                            
+                            # Actualizar BD
+                            route.file_path = filepath
+                            
+                            results['routes_repaired'].append({
+                                'id': route.id,
+                                'name': route.name,
+                                'new_file': filepath
+                            })
+                            
+                except Exception as e:
+                    results['errors'].append(f"Error reparando ruta {route.id}: {e}")
+            
+            # 3. Commit cambios
+            try:
+                db.session.commit()
+            except Exception as e:
+                results['errors'].append(f"Error guardando cambios: {e}")
+                db.session.rollback()
+            
+            # Generar mensaje de resultado
+            success_count = len(results['directories_created']) + len(results['routes_repaired']) + len(results['files_cleaned'])
+            error_count = len(results['errors'])
+            
+            if success_count > 0 and error_count == 0:
+                flash(f'Reparación completada exitosamente: {success_count} elementos reparados', 'success')
+            elif success_count > 0 and error_count > 0:
+                flash(f'Reparación parcial: {success_count} reparados, {error_count} errores', 'warning')
+            elif error_count > 0:
+                flash(f'Reparación falló: {error_count} errores encontrados', 'danger')
+            else:
+                flash('No se encontraron problemas para reparar', 'info')
+            
+            print("=== REPARACIÓN AUTOMÁTICA COMPLETADA ===")
+            
+            return jsonify(results)
+            
+        except Exception as e:
+            flash(f'Error en reparación automática: {str(e)}', 'danger')
+            return jsonify({'error': str(e)})
 
 
     # ==================== RUTAS DE TÉCNICO ====================
@@ -1484,38 +1851,22 @@ def create_app():
     @technician_required
     def change_user_password(user_id):
         user = User.query.get_or_404(user_id)
-        
+            
         if request.method == 'POST':
             new_password = request.form.get('new_password')
             confirm_password = request.form.get('confirm_password')
-            
+                
             if new_password != confirm_password:
                 flash('Las contraseñas no coinciden.', 'danger')
                 return redirect(url_for('change_user_password', user_id=user_id))
-            
+                
             user.set_password(new_password)
             db.session.commit()
-            
+                
             flash(f'Contraseña de {user.username} actualizada correctamente.', 'success')
             return redirect(url_for('technician_dashboard'))
-        
+            
         return render_template('technician/change_password.html', user=user)
-
-    @app.route('/technician/toggle_user/<int:user_id>', methods=['POST'])
-    @technician_required
-    def toggle_user_status(user_id):
-        user = User.query.get_or_404(user_id)
-        
-        if user.is_admin:
-            flash('No puedes ocultar usuarios administradores.', 'danger')
-            return redirect(url_for('technician_dashboard'))
-        
-        user.active = not user.active
-        db.session.commit()
-        
-        status = 'activado' if user.active else 'ocultado'
-        flash(f'Usuario {user.username} {status} correctamente.', 'success')
-        return redirect(url_for('technician_dashboard'))
 
     # ==================== RUTAS DE COORDINADOR ====================
     
@@ -1559,7 +1910,6 @@ def create_app():
                              route=route,
                              map_html=map_html,
                              completions=completions)
-
     # ==================== RUTAS DE CHOFER (CORREGIDAS) ====================
     
     @app.route('/driver/dashboard')
@@ -1594,6 +1944,8 @@ def create_app():
                              recent_completions=recent_completions,
                              in_progress=in_progress)
 
+
+
     @app.route('/driver/route_history')
     @driver_required
     def driver_route_history():
@@ -1607,6 +1959,8 @@ def create_app():
             print(f"ERROR en driver_route_history: {e}")
             flash(f'Error al cargar el historial: {str(e)}', 'danger')
             return redirect(url_for('driver_dashboard'))
+
+
 
     @app.route('/driver/view_route/<int:route_id>')
     @driver_required
@@ -1646,6 +2000,7 @@ def create_app():
             print(f"ERROR en driver_view_route: {e}")
             flash(f'Error al cargar la ruta: {str(e)}', 'danger')
             return redirect(url_for('driver_dashboard'))
+
 
     @app.route('/driver/start_route/<int:route_id>', methods=['POST'])
     @driver_required
@@ -1706,7 +2061,11 @@ def create_app():
             db.session.rollback()  # Importante: hacer rollback en caso de error
             return jsonify({'success': False, 'message': f'Error al iniciar la ruta: {str(e)}'}), 500
 
-    
+
+
+
+    # ==================== FUNCIÓN DRIVER_NAVIGATE CORREGIDA ====================
+
     @app.route('/driver/navigate/<int:route_id>')
     @driver_required
     def driver_navigate(route_id):
@@ -1728,61 +2087,134 @@ def create_app():
                 flash(f'Tienes otra ruta en progreso: {in_progress.route.name}. Complétala primero.', 'warning')
                 return redirect(url_for('driver_dashboard'))
             
-            # CARGAR EL MAPA CORRECTAMENTE
-            map_html = ""
+            print(f"\n=== CARGANDO MAPA PARA NAVEGACIÓN ===")
+            print(f"Ruta: {route.name} (ID: {route.id})")
+            print(f"file_path: {route.file_path}")
+            print(f"gpx_path: {route.gpx_path}")
             
-            try:
-                # 1. Primero intentar cargar el archivo de mapa existente
-                if route.file_path and os.path.exists(route.file_path):
-                    print(f"Cargando mapa desde: {route.file_path}")
-                    with open(route.file_path, 'r', encoding='utf-8') as f:
-                        map_html = f.read()
-                    print(f"Mapa cargado exitosamente, tamaño: {len(map_html)} caracteres")
+            map_html = None
+            map_source = "none"
+            
+            # INTENTO 1: Cargar desde file_path
+            if route.file_path:
+                print(f"Intento 1: Cargando desde file_path: {route.file_path}")
                 
-                # 2. Si no existe el archivo, intentar regenerar desde GPX
-                elif route.gpx_path and os.path.exists(route.gpx_path):
-                    print(f"Regenerando mapa desde GPX: {route.gpx_path}")
-                    
-                    # Cargar puntos del GPX
-                    optimizer = AdvancedRouteOptimizer()
-                    points = optimizer.load_gpx_points(route.gpx_path)
-                    
-                    if points:
-                        # Crear mapa temporal para navegación
-                        temp_map = optimizer.create_optimized_map(points, f"Navegación: {route.name}")
+                if os.path.exists(route.file_path):
+                    try:
+                        with open(route.file_path, 'r', encoding='utf-8') as f:
+                            map_html = f.read()
                         
-                        # Generar HTML temporal
-                        import tempfile
-                        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
-                            temp_map.save(temp_file.name)
+                        # Verificar que el contenido sea válido
+                        if len(map_html) > 500 and '<html' in map_html.lower():
+                            map_source = "file_path"
+                            print(f"✓ Mapa cargado desde file_path ({len(map_html)} caracteres)")
+                        else:
+                            print(f"✗ Archivo existe pero contenido inválido (tamaño: {len(map_html)})")
+                            map_html = None
                             
-                            # Leer el contenido
-                            with open(temp_file.name, 'r', encoding='utf-8') as f:
-                                map_html = f.read()
-                            
-                            # Limpiar archivo temporal
-                            os.unlink(temp_file.name)
-                        
-                        print(f"Mapa regenerado exitosamente desde GPX")
-                    else:
-                        print("No se pudieron cargar puntos del GPX")
+                    except Exception as e:
+                        print(f"✗ Error leyendo file_path: {e}")
+                        map_html = None
+                else:
+                    print(f"✗ file_path no existe: {route.file_path}")
+            
+            # INTENTO 2: Regenerar desde GPX
+            if not map_html and route.gpx_path:
+                print(f"Intento 2: Regenerando desde GPX: {route.gpx_path}")
                 
-                # 3. Si nada funciona, crear un mapa básico
-                if not map_html:
-                    print("Creando mapa básico como fallback")
-                    map_html = create_fallback_map(route.name)
+                if os.path.exists(route.gpx_path):
+                    try:
+                        # Cargar puntos del GPX
+                        optimizer = AdvancedRouteOptimizer()
+                        points = optimizer.load_gpx_points(route.gpx_path)
+                        
+                        if points and len(points) > 1:
+                            print(f"✓ GPX cargado: {len(points)} puntos")
+                            
+                            # Crear mapa temporal
+                            route_map = optimizer.create_optimized_map(points, f"Navegación: {route.name}")
+                            
+                            # Generar HTML temporal en memoria
+                            import tempfile
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_file:
+                                route_map.save(temp_file.name)
+                                
+                                # Leer contenido
+                                with open(temp_file.name, 'r', encoding='utf-8') as f:
+                                    map_html = f.read()
+                                
+                                # Limpiar archivo temporal
+                                os.unlink(temp_file.name)
+                            
+                            map_source = "gpx_regenerated"
+                            print(f"✓ Mapa regenerado desde GPX ({len(map_html)} caracteres)")
+                            
+                            # OPCIONAL: Guardar el mapa regenerado para futuro uso
+                            try:
+                                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                new_filename = f"route_{route.id}_regenerated_{timestamp}.html"
+                                new_filepath = os.path.join('static', 'routes', new_filename)
+                                
+                                os.makedirs(os.path.dirname(new_filepath), exist_ok=True)
+                                
+                                with open(new_filepath, 'w', encoding='utf-8') as f:
+                                    f.write(map_html)
+                                
+                                # Actualizar BD con la nueva ruta
+                                old_path = route.file_path
+                                route.file_path = new_filepath
+                                db.session.commit()
+                                
+                                print(f"✓ Mapa guardado para futuro uso: {new_filepath}")
+                                
+                                # Eliminar archivo anterior si existe
+                                if old_path and os.path.exists(old_path):
+                                    try:
+                                        os.remove(old_path)
+                                        print(f"✓ Archivo anterior eliminado: {old_path}")
+                                    except:
+                                        pass
+                                        
+                            except Exception as e:
+                                print(f"⚠️  No se pudo guardar mapa regenerado: {e}")
+                                # No es crítico, continuar con el mapa en memoria
+                            
+                        else:
+                            print(f"✗ GPX no contiene puntos válidos")
+                            
+                    except Exception as e:
+                        print(f"✗ Error procesando GPX: {e}")
+                else:
+                    print(f"✗ GPX no existe: {route.gpx_path}")
+            
+            # INTENTO 3: Crear mapa básico de fallback
+            if not map_html:
+                print("Intento 3: Creando mapa básico de fallback")
+                
+                try:
+                    map_html = create_navigation_fallback_map(route)
+                    map_source = "fallback"
+                    print(f"✓ Mapa de fallback creado")
                     
-            except Exception as e:
-                print(f"Error cargando mapa: {e}")
-                map_html = create_fallback_map(route.name, error=str(e))
+                except Exception as e:
+                    print(f"✗ Error creando fallback: {e}")
+                    map_html = create_emergency_map_html(route.name)
+                    map_source = "emergency"
+                    print(f"✓ Mapa de emergencia creado")
+            
+            print(f"Mapa final: fuente={map_source}, tamaño={len(map_html) if map_html else 0}")
             
             return render_template('driver/navigate.html',
-                                route=route,
-                                completion=in_progress,
-                                map_html=map_html)
-                                
+                                 route=route,
+                                 completion=in_progress,
+                                 map_html=map_html,
+                                 map_source=map_source)  # Para debug
+                                 
         except Exception as e:
-            print(f"ERROR en driver_navigate: {e}")
+            print(f"ERROR CRÍTICO en driver_navigate: {e}")
+            import traceback
+            traceback.print_exc()
+            
             flash(f'Error al cargar la navegación: {str(e)}', 'danger')
             return redirect(url_for('driver_dashboard'))
 
@@ -1888,9 +2320,11 @@ def create_app():
             
         except Exception as e:
             print(f"ERROR en driver_update_route_progress: {e}")
-            return jsonify({'success': False, 'message': f'Error al actualizar progreso: {str(e)}'}), 500
+            return jsonify({'success': False, 'message': f'Error al actualizar progreso: {str(e)}'}), 
 
-    
+
+
+
     @app.route('/driver/complete_route/<int:completion_id>', methods=['POST'])
     @driver_required
     def driver_complete_route(completion_id):
@@ -1918,33 +2352,6 @@ def create_app():
             
             if notes:
                 completion.notes = notes
-            
-            # NUEVO: Generar el mapa del recorrido completado
-            try:
-                completion_map = generate_completion_map(completion)
-                
-                if completion_map:
-                    # Generar nombre único para el archivo del mapa
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    map_filename = f"completion_{completion.id}_{timestamp}.html"
-                    map_filepath = os.path.join('static', 'completions', map_filename)
-                    
-                    # Asegurar que el directorio existe
-                    os.makedirs(os.path.dirname(map_filepath), exist_ok=True)
-                    
-                    # Guardar el mapa
-                    completion_map.save(map_filepath)
-                    
-                    # Guardar la ruta del mapa en la base de datos
-                    completion.track_map_path = map_filepath
-                    
-                    print(f"Mapa de recorrido guardado: {map_filepath}")
-                else:
-                    print("No se pudo generar el mapa del recorrido")
-                    
-            except Exception as e:
-                print(f"Error generando mapa de recorrido: {e}")
-                # No fallar la completion si no se puede generar el mapa
             
             db.session.commit()
             
@@ -1995,6 +2402,7 @@ def create_app():
         except Exception as e:
             print(f"ERROR en driver_cancel_route: {e}")
             return jsonify({'success': False, 'message': f'Error al cancelar ruta: {str(e)}'}), 500
+
         
 
     @app.route('/view_completion_map/<int:completion_id>')
@@ -2328,7 +2736,17 @@ def create_app():
 
     # Crear tablas al inicializar la aplicación
     
-
+    def get_recent_completions(limit=10):
+        """Obtener recorridos completados recientes"""
+        try:
+            return RouteCompletion.query.filter_by(
+                status='completed'
+            ).order_by(
+                RouteCompletion.completed_at.desc()
+            ).limit(limit).all()
+        except Exception as e:
+            print(f"Error obteniendo recorridos recientes: {e}")
+            return []
 
     @app.route('/routes/<path:filename>')
     def route_files(filename):
@@ -2973,7 +3391,6 @@ def create_app():
             route_map = optimizer.create_optimized_map(points, route.name)
             
             # Generar nuevo archivo
-            import uuid
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             new_filename = f"route_{route.id}_{timestamp}.html"
             new_filepath = os.path.join('static', 'routes', new_filename)
@@ -3048,6 +3465,8 @@ def create_app():
         except Exception as e:
             return jsonify({'error': str(e)})
 
+
+    
 
 
     @app.route('/test')
